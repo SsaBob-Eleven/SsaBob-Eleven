@@ -20,7 +20,7 @@
 
 1. 참가자는 이름을 입력해 한 회차에 한 번 참여한다.
 2. `10층`, `20층`, `밖` 중 하나를 선택하는 장소 우선 흐름을 지원한다.
-3. 매주 지정 요일 11시 30분에 투표를 닫고 자동으로 조를 생성한다.
+3. 매주 수요일 11시 30분에 투표를 닫고 자동으로 조를 생성한다.
 4. 조는 4~5명을 목표로 구성하되 인원이 맞지 않으면 누락 없이 균등하게 조 크기를 조정한다.
 5. 최근에 같은 조였던 사람의 재매칭을 가능한 한 줄인다.
 6. 환경변수로 `장소 선택 → 조 편성`과 `조 편성 → 장소 선택`을 전환한다.
@@ -628,8 +628,8 @@ APP_LOCALE=ko-KR
 MAX_PARTICIPANTS_PER_ROUND=26
 
 FLOW_MODE=LOCATION_FIRST
-EVENT_WEEKDAY=FRI
-VOTE_OPEN_DAY=MON
+EVENT_WEEKDAY=WED
+VOTE_OPEN_DAY=WED
 VOTE_OPEN_TIME=09:00
 VOTE_CLOSE_TIME=11:30
 TEAM_LOCATION_CLOSE_TIME=11:40
@@ -656,6 +656,7 @@ VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 검증 규칙:
 
 - 운영 모드와 요일/시간 enum을 시작 시 Zod로 검증한다.
+- 배포 운영 일정은 매주 수요일 09:00 투표 시작, 11:30 투표 마감과 자동 조 편성으로 설정한다.
 - `MAX_PARTICIPANTS_PER_ROUND=26`을 기본이자 운영 상한으로 사용한다.
 - `TARGET_GROUP_MIN_SIZE <= TARGET_GROUP_MAX_SIZE`여야 한다.
 - `SSE_HEARTBEAT_INTERVAL_MS`는 5,000~60,000ms 범위여야 한다.
