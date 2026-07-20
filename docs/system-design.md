@@ -5,10 +5,16 @@
 | 항목 | 내용 |
 |---|---|
 | 목적 | 최대 26명의 주 1회 점심 투표와 목표 4~5명 단위의 적응형 랜덤 조 편성 서비스 설계 |
-| 프론트엔드 | Vue 3, Vite, TypeScript |
-| 백엔드 | Node.js, Express, TypeScript |
-| 데이터베이스 | Prisma ORM, SQLite |
-| 배포 | Netlify(프론트엔드), Render 단일 Web Service(백엔드) |
+| 모노레포·패키지 관리 | pnpm 11 workspace |
+| 프론트엔드 | Vue 3.5, Vue Router 4.6, Vite 7, TypeScript 5.9 |
+| 백엔드 | Node.js 22, Express 5, TypeScript 5.9 |
+| API 검증·보안 | Zod 4, Helmet 8, CORS 2, express-rate-limit 8 |
+| 데이터베이스 | Prisma ORM 6.19, SQLite |
+| 실시간 통신 | Server-Sent Events(SSE), Node.js EventEmitter 기반 인프로세스 pub/sub |
+| 스케줄러 | Express 프로세스 내부 scheduler worker |
+| 테스트·정적 검증 | Vitest 4, vue-tsc 3, TypeScript compiler |
+| 컨테이너 | Docker, Node.js 22 Alpine image |
+| 배포·영속화 | Netlify(Vue SPA), Render 단일 Docker Web Service, Render Persistent Disk |
 | 기준 시간대 | Asia/Seoul |
 | 서비스 범위 | 대한민국 단일 지역, 한국어 UI, 회차당 최대 26명 |
 | API 규격 | `docs/openapi.yaml` |
