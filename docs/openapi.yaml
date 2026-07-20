@@ -1,0 +1,1087 @@
+openapi: 3.1.0
+info:
+  title: 싸밥일레븐 API
+  version: 1.0.0
+  description: |
+    주간 점심 장소 투표와 과거 조 이력을 고려한 랜덤 조 편성 API.
+    대한민국 단일 지역에서 회차당 최대 26명을 지원한다.
+    조 크기는 4~5명을 목표로 하되 인원에 따라 ADAPTIVE 정책으로 자동 조정한다.
+    모든 시각은 ISO 8601 UTC 문자열로 전달한다.
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+  - url: http://localhost:3000/api/v1
+    description: Local
+tags:
+  - name: Health
+  - name: Rounds
+  - name: Registrations
+  - name: Teams
+  - name: Admin
+
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: 프로세스 생존 확인
+      operationId: getLiveness
+      responses:
+        "200":
+          description: 프로세스가 요청에 응답함
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: 서비스 준비 상태 확인
+      operationId: getReadiness
+      responses:
+        "200":
+          description: API와 DB가 준비됨
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: DB 연결 등 필수 의존성이 준비되지 않음
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rounds/current:
+    get:
+      tags: [Rounds]
+      summary: 현재 회차 조회
+      operationId: getCurrentRound
+      responses:
+        "200":
+          description: 현재 회차. 회차가 없으면 data.round는 null.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentRoundResponse"
+
+  /rounds/{roundId}/registrations:
+    post:
+      tags: [Registrations]
+      summary: 현재 회차 참가 등록
+      operationId: createRegistration
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRegistrationRequest"
+      responses:
+        "201":
+          description: 등록 완료. editToken은 이 응답에서만 평문으로 제공됨.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationCreatedResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "429":
+          $ref: "#/components/responses/RateLimitError"
+
+  /registrations/{registrationId}:
+    parameters:
+      - $ref: "#/components/parameters/RegistrationId"
+    get:
+      tags: [Registrations]
+      summary: 내 등록과 편성 정보 조회
+      operationId: getMyRegistration
+      security:
+        - EditToken: []
+      responses:
+        "200":
+          description: 등록과 소속 팀 정보
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationContextResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    patch:
+      tags: [Registrations]
+      summary: 내 등록 수정
+      operationId: updateMyRegistration
+      security:
+        - EditToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRegistrationRequest"
+      responses:
+        "200":
+          description: 수정된 등록
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+    delete:
+      tags: [Registrations]
+      summary: 내 등록 취소
+      operationId: deleteMyRegistration
+      security:
+        - EditToken: []
+      responses:
+        "204":
+          description: 취소 완료
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /rounds/{roundId}/results:
+    get:
+      tags: [Rounds]
+      summary: 회차 결과 조회
+      operationId: getRoundResults
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      responses:
+        "200":
+          description: 조 편성 이후 결과. TEAM_FIRST의 미선택 장소는 null.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundResultsResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /teams/{teamId}/location:
+    parameters:
+      - $ref: "#/components/parameters/TeamId"
+    patch:
+      tags: [Teams]
+      summary: 팀 장소 확정 또는 수정
+      description: TEAM_FIRST의 LOCATION_SELECTION 상태에서만 가능하다. 최초 확정 후 같은 등록자만 수정할 수 있다.
+      operationId: selectTeamLocation
+      security:
+        - EditToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamLocationRequest"
+      responses:
+        "200":
+          description: 장소가 반영된 팀
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+    delete:
+      tags: [Teams]
+      summary: 팀 장소 선택 취소
+      operationId: clearTeamLocation
+      security:
+        - EditToken: []
+      responses:
+        "204":
+          description: 취소 완료
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /admin/rounds:
+    get:
+      tags: [Admin]
+      summary: 관리자 회차 목록
+      operationId: listAdminRounds
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: 회차 목록
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRoundListResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+    post:
+      tags: [Admin]
+      summary: 회차 수동 생성
+      operationId: createAdminRound
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoundRequest"
+      responses:
+        "201":
+          description: 생성된 회차
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /admin/rounds/{roundId}:
+    get:
+      tags: [Admin]
+      summary: 관리자 회차 상세
+      operationId: getAdminRound
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      responses:
+        "200":
+          description: 등록과 생성 감사 정보를 포함한 회차 상세
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRoundDetailResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /admin/rounds/{roundId}/generate:
+    post:
+      tags: [Admin]
+      summary: 회차 강제 마감 및 조 생성
+      description: OPEN 상태에서만 선점한다. 이미 생성된 경우 409를 반환하며 재추첨하지 않는다.
+      operationId: generateAdminRound
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRoundRequest"
+      responses:
+        "200":
+          description: 생성된 결과
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundResultsResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /admin/registrations/{registrationId}:
+    parameters:
+      - $ref: "#/components/parameters/RegistrationId"
+    patch:
+      tags: [Admin]
+      summary: 등록 정보 관리자 정정
+      operationId: updateAdminRegistration
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateRegistrationRequest"
+      responses:
+        "200":
+          description: 수정된 등록
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+    delete:
+      tags: [Admin]
+      summary: 등록 관리자 삭제
+      operationId: deleteAdminRegistration
+      security:
+        - AdminBearer: []
+      responses:
+        "204":
+          description: 삭제 완료
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /admin/teams/{teamId}/location:
+    put:
+      tags: [Admin]
+      summary: 팀 장소 관리자 지정
+      description: LOCATION_SELECTION 상태에서만 가능하며 완료된 회차는 변경하지 않는다.
+      operationId: setAdminTeamLocation
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminTeamLocationRequest"
+      responses:
+        "200":
+          description: 수정된 팀
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+components:
+  securitySchemes:
+    EditToken:
+      type: apiKey
+      in: header
+      name: X-Edit-Token
+      description: 참가 등록 시 한 번만 발급되는 편집 토큰
+    AdminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-token
+
+  headers:
+    RequestId:
+      description: 요청 추적 ID
+      schema:
+        type: string
+
+  parameters:
+    RoundId:
+      name: roundId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RegistrationId:
+      name: registrationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TeamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    ValidationError:
+      description: 요청 검증 실패
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnauthorizedError:
+      description: 편집 토큰 누락 또는 불일치
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AdminUnauthorizedError:
+      description: 관리자 토큰 누락 또는 불일치
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFoundError:
+      description: 리소스가 존재하지 않음
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ConflictError:
+      description: 현재 회차 상태 또는 기존 데이터와 충돌
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimitError:
+      description: 요청 제한 초과
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 다시 요청할 수 있을 때까지의 초
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    FlowMode:
+      type: string
+      enum: [LOCATION_FIRST, TEAM_FIRST]
+
+    RoundStatus:
+      type: string
+      enum: [SCHEDULED, OPEN, GENERATING, LOCATION_SELECTION, COMPLETED]
+
+    Location:
+      type: string
+      enum: [FLOOR_10, FLOOR_20, OUTSIDE]
+
+    GroupSizePolicy:
+      type: string
+      enum: [ADAPTIVE]
+      description: 목표 조 크기로 나눌 수 없을 때 전체 참가자를 누락 없이 균등 배치하는 고정 정책
+
+    HealthResponse:
+      type: object
+      required: [status, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        timestamp:
+          type: string
+          format: date-time
+
+    Participant:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+
+    Round:
+      type: object
+      required:
+        - id
+        - weekKey
+        - flowMode
+        - status
+        - opensAt
+        - closesAt
+        - groupSizePolicy
+        - targetGroupMinSize
+        - targetGroupMaxSize
+        - maxParticipants
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        weekKey:
+          type: string
+          pattern: "^[0-9]{4}-W[0-9]{2}$"
+          example: 2026-W29
+        flowMode:
+          $ref: "#/components/schemas/FlowMode"
+        status:
+          $ref: "#/components/schemas/RoundStatus"
+        opensAt:
+          type: string
+          format: date-time
+        closesAt:
+          type: string
+          format: date-time
+        locationClosesAt:
+          type: [string, "null"]
+          format: date-time
+        groupSizePolicy:
+          $ref: "#/components/schemas/GroupSizePolicy"
+        targetGroupMinSize:
+          type: integer
+          minimum: 1
+          example: 4
+        targetGroupMaxSize:
+          type: integer
+          minimum: 1
+          example: 5
+        maxParticipants:
+          type: integer
+          minimum: 1
+          maximum: 26
+          example: 26
+        generatedAt:
+          type: [string, "null"]
+          format: date-time
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RegistrationRules:
+      type: object
+      required:
+        - registrationOpen
+        - preferredLocationRequired
+        - preferredLocationAllowed
+        - resultAvailable
+        - teamLocationSelectable
+      properties:
+        registrationOpen:
+          type: boolean
+        preferredLocationRequired:
+          type: boolean
+        preferredLocationAllowed:
+          type: boolean
+        resultAvailable:
+          type: boolean
+        teamLocationSelectable:
+          type: boolean
+
+    CurrentRoundResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [serverTime, round, rules, registrationCount]
+          properties:
+            serverTime:
+              type: string
+              format: date-time
+            round:
+              oneOf:
+                - $ref: "#/components/schemas/Round"
+                - type: "null"
+            rules:
+              oneOf:
+                - $ref: "#/components/schemas/RegistrationRules"
+                - type: "null"
+            registrationCount:
+              type: integer
+              minimum: 0
+
+    Registration:
+      type: object
+      required:
+        - id
+        - roundId
+        - participant
+        - preferredLocation
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        roundId:
+          type: string
+          format: uuid
+        participant:
+          $ref: "#/components/schemas/Participant"
+        preferredLocation:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRegistrationRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 홍길동
+        preferredLocation:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+      description: LOCATION_FIRST에서는 preferredLocation 필수, TEAM_FIRST에서는 금지
+
+    UpdateRegistrationRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+        preferredLocation:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+
+    RegistrationCreatedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [registration, editToken]
+          properties:
+            registration:
+              $ref: "#/components/schemas/Registration"
+            editToken:
+              type: string
+              minLength: 32
+              description: 한 번만 평문으로 반환되는 편집 토큰
+
+    RegistrationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [registration]
+          properties:
+            registration:
+              $ref: "#/components/schemas/Registration"
+
+    RegistrationContextResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [registration, team]
+          properties:
+            registration:
+              $ref: "#/components/schemas/Registration"
+            team:
+              oneOf:
+                - $ref: "#/components/schemas/Team"
+                - type: "null"
+
+    TeamMember:
+      type: object
+      required: [registrationId, participant]
+      properties:
+        registrationId:
+          type: string
+          format: uuid
+        participant:
+          $ref: "#/components/schemas/Participant"
+
+    Team:
+      type: object
+      required:
+        - id
+        - roundId
+        - sequence
+        - location
+        - sizeAdjusted
+        - members
+        - locationSelectedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        roundId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+        sizeAdjusted:
+          type: boolean
+          description: 목표 4~5명 범위 밖으로 자동 조정된 조인지 여부
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+        locationSelectedAt:
+          type: [string, "null"]
+          format: date-time
+
+    TeamLocationRequest:
+      type: object
+      required: [location]
+      additionalProperties: false
+      properties:
+        location:
+          $ref: "#/components/schemas/Location"
+
+    AdminTeamLocationRequest:
+      type: object
+      required: [location]
+      additionalProperties: false
+      properties:
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+
+    TeamResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [team]
+          properties:
+            team:
+              $ref: "#/components/schemas/Team"
+
+    ResultSummary:
+      type: object
+      required: [registrationCount, teamCount, sizeAdjustedTeamCount, unselectedLocationCount]
+      properties:
+        registrationCount:
+          type: integer
+          minimum: 0
+        teamCount:
+          type: integer
+          minimum: 0
+        sizeAdjustedTeamCount:
+          type: integer
+          minimum: 0
+        unselectedLocationCount:
+          type: integer
+          minimum: 0
+
+    RoundResultsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [serverTime, round, summary, teams]
+          properties:
+            serverTime:
+              type: string
+              format: date-time
+            round:
+              $ref: "#/components/schemas/Round"
+            summary:
+              $ref: "#/components/schemas/ResultSummary"
+            teams:
+              type: array
+              items:
+                $ref: "#/components/schemas/Team"
+
+    CreateRoundRequest:
+      type: object
+      required:
+        - weekKey
+        - flowMode
+        - opensAt
+        - closesAt
+        - groupSizePolicy
+        - targetGroupMinSize
+        - targetGroupMaxSize
+        - maxParticipants
+      additionalProperties: false
+      properties:
+        weekKey:
+          type: string
+          pattern: "^[0-9]{4}-W[0-9]{2}$"
+        flowMode:
+          $ref: "#/components/schemas/FlowMode"
+        opensAt:
+          type: string
+          format: date-time
+        closesAt:
+          type: string
+          format: date-time
+        locationClosesAt:
+          type: [string, "null"]
+          format: date-time
+        groupSizePolicy:
+          $ref: "#/components/schemas/GroupSizePolicy"
+        targetGroupMinSize:
+          type: integer
+          minimum: 1
+          default: 4
+        targetGroupMaxSize:
+          type: integer
+          minimum: 1
+          default: 5
+        maxParticipants:
+          type: integer
+          minimum: 1
+          maximum: 26
+          default: 26
+        historyWeeks:
+          type: integer
+          minimum: 0
+          maximum: 52
+          default: 8
+        randomAttempts:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 500
+
+    GenerateRoundRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          default: 관리자 수동 마감
+
+    AdminUpdateRegistrationRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+        preferredLocation:
+          oneOf:
+            - $ref: "#/components/schemas/Location"
+            - type: "null"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    GenerationAudit:
+      type: object
+      required:
+        - algorithmVersion
+        - trigger
+        - candidateCount
+        - bestScore
+        - repeatedPairCount
+        - sizeAdjustedTeamCount
+        - durationMs
+        - createdAt
+      properties:
+        algorithmVersion:
+          type: string
+        trigger:
+          type: string
+          enum: [SCHEDULER, ADMIN, RECOVERY]
+        triggerReason:
+          type: [string, "null"]
+        candidateCount:
+          type: integer
+        bestScore:
+          type: number
+        repeatedPairCount:
+          type: integer
+        sizeAdjustedTeamCount:
+          type: integer
+        durationMs:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminRoundListItem:
+      type: object
+      required: [round, registrationCount, teamCount]
+      properties:
+        round:
+          $ref: "#/components/schemas/Round"
+        registrationCount:
+          type: integer
+        teamCount:
+          type: integer
+
+    Pagination:
+      type: object
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    AdminRoundListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items, pagination]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/AdminRoundListItem"
+            pagination:
+              $ref: "#/components/schemas/Pagination"
+
+    AdminRoundDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [round, registrations, teams, generationAudit]
+          properties:
+            round:
+              $ref: "#/components/schemas/Round"
+            registrations:
+              type: array
+              items:
+                $ref: "#/components/schemas/Registration"
+            teams:
+              type: array
+              items:
+                $ref: "#/components/schemas/Team"
+            generationAudit:
+              oneOf:
+                - $ref: "#/components/schemas/GenerationAudit"
+                - type: "null"
+
+    RoundResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [round]
+          properties:
+            round:
+              $ref: "#/components/schemas/Round"
+
+    ErrorDetail:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - INVALID_EDIT_TOKEN
+            - INVALID_ADMIN_TOKEN
+            - ROUND_NOT_FOUND
+            - REGISTRATION_NOT_FOUND
+            - TEAM_NOT_FOUND
+            - ROUND_NOT_OPEN
+            - REGISTRATION_ALREADY_EXISTS
+            - LOCATION_REQUIRED
+            - LOCATION_NOT_ALLOWED
+            - RESULT_NOT_READY
+            - TEAM_LOCATION_NOT_OPEN
+            - TEAM_LOCATION_ALREADY_SELECTED
+            - NOT_A_TEAM_MEMBER
+            - ROUND_CAPACITY_REACHED
+            - RATE_LIMITED
+            - INTERNAL_ERROR
+        message:
+          type: string
+        details:
+          type: [object, array, string, "null"]
+        requestId:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
