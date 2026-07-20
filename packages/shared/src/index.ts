@@ -5,6 +5,7 @@ export const ROUND_STATUSES = [
   "SCHEDULED",
   "OPEN",
   "GENERATING",
+  "PAUSED",
   "LOCATION_SELECTION",
   "COMPLETED",
 ] as const;

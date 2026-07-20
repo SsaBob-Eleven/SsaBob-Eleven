@@ -95,10 +95,7 @@ async function openVotingNow() {
 }
 
 async function reopenVoting() {
-  if (
-    !selected.value ||
-    !confirm("기존 조 편성과 결과를 삭제하고 투표를 30분 동안 다시 열까요? 참가자 등록은 유지됩니다.")
-  ) return;
+  if (!selected.value || !confirm("참가자 등록을 유지한 채 투표를 30분 동안 다시 열까요?")) return;
   loading.value = true;
   error.value = "";
   try {
@@ -106,6 +103,20 @@ async function reopenVoting() {
     await Promise.all([refreshSelected(selected.value.round.id), loadRounds()]);
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "투표를 다시 열지 못했습니다.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function deleteTeams() {
+  if (!selected.value || !confirm("기존 조 편성과 생성 기록을 삭제할까요? 참가자 등록은 유지됩니다.")) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await api.adminDeleteTeams(token.value, selected.value.round.id);
+    await Promise.all([refreshSelected(selected.value.round.id), loadRounds()]);
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "조 편성을 삭제하지 못했습니다.";
   } finally {
     loading.value = false;
   }
@@ -178,8 +189,9 @@ onBeforeUnmount(() => unsubscribeRealtime?.());
           v-else-if="selected.round.status === 'LOCATION_SELECTION' || selected.round.status === 'COMPLETED'"
           class="danger-action"
           :disabled="loading"
-          @click="reopenVoting"
-        >조 삭제·투표 다시 열기</button>
+          @click="deleteTeams"
+        >조 편성 삭제</button>
+        <button v-else-if="selected.round.status === 'PAUSED'" class="primary-button small" :disabled="loading" @click="reopenVoting">투표 다시 열기</button>
       </div>
       <div class="participant-list">
         <span v-for="registration in selected.registrations" :key="registration.id">

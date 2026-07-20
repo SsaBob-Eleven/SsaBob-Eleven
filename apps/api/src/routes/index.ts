@@ -14,6 +14,7 @@ import {
   updateRegistration,
 } from "../services/registration-service.js";
 import {
+  deleteRoundTeams,
   ensureCurrentRound,
   generateRound,
   openRoundNow,
@@ -268,6 +269,12 @@ adminRouter.post("/rounds/:roundId/open", async (request, response) => {
 adminRouter.post("/rounds/:roundId/reopen", async (request, response) => {
   const roundId = idSchema.parse(request.params.roundId);
   const round = await reopenRoundVoting(roundId);
+  response.json({ data: { round: serializeRound(round) } });
+});
+
+adminRouter.delete("/rounds/:roundId/teams", async (request, response) => {
+  const roundId = idSchema.parse(request.params.roundId);
+  const round = await deleteRoundTeams(roundId);
   response.json({ data: { round: serializeRound(round) } });
 });
 

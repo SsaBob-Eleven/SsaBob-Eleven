@@ -37,6 +37,7 @@ const statusLabel = computed(() => {
     case "SCHEDULED": return "투표 시작 전";
     case "OPEN": return "투표 진행 중";
     case "GENERATING": return "조 편성 중";
+    case "PAUSED": return "관리자 확인 중";
     case "LOCATION_SELECTION": return "팀별 장소 선택 중";
     case "COMPLETED": return "편성 완료";
     default: return "준비 중";
@@ -45,6 +46,7 @@ const statusLabel = computed(() => {
 
 const countdown = computed(() => {
   if (!current.value) return "";
+  if (current.value.round.status === "PAUSED") return "투표 재개 대기 중";
   const target = current.value.round.status === "SCHEDULED" ? current.value.round.opensAt : current.value.round.closesAt;
   const difference = new Date(target).getTime() - now.value;
   if (difference <= 0) return "곧 상태가 변경됩니다";
@@ -265,8 +267,8 @@ onBeforeUnmount(() => {
 
     <section v-else class="panel empty-state result-cta">
       <p class="step">02</p>
-      <h2>{{ current.round.status === 'GENERATING' ? '새로운 조를 만들고 있어요' : '이번 주 조가 준비됐어요' }}</h2>
-      <p>{{ current.round.status === 'GENERATING' ? '최근에 만난 사람을 고려해 가장 좋은 조합을 찾는 중입니다.' : '내가 누구와 어디서 먹게 됐는지 확인해 보세요.' }}</p>
+      <h2>{{ current.round.status === 'GENERATING' ? '새로운 조를 만들고 있어요' : current.round.status === 'PAUSED' ? '기존 조 편성이 삭제됐어요' : '이번 주 조가 준비됐어요' }}</h2>
+      <p>{{ current.round.status === 'GENERATING' ? '최근에 만난 사람을 고려해 가장 좋은 조합을 찾는 중입니다.' : current.round.status === 'PAUSED' ? '관리자가 투표를 다시 열기 전까지 잠시 기다려 주세요.' : '내가 누구와 어디서 먹게 됐는지 확인해 보세요.' }}</p>
       <RouterLink v-if="current.rules.resultAvailable" class="primary-button inline-button" to="/results">조 편성 결과 보기</RouterLink>
     </section>
   </template>

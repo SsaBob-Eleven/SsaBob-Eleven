@@ -220,6 +220,9 @@ stateDiagram-v2
     GENERATING --> COMPLETED: LOCATION_FIRST 생성 성공
     GENERATING --> LOCATION_SELECTION: TEAM_FIRST 생성 성공
     LOCATION_SELECTION --> COMPLETED: locationClosesAt 도달
+    LOCATION_SELECTION --> PAUSED: 관리자 조 편성 삭제
+    COMPLETED --> PAUSED: 관리자 조 편성 삭제
+    PAUSED --> OPEN: 관리자 투표 다시 열기
     GENERATING --> OPEN: 생성 실패 및 안전한 롤백
 ```
 
@@ -228,6 +231,7 @@ stateDiagram-v2
 | `SCHEDULED` | 불가 | 불가 | 불가 |
 | `OPEN` | 가능 | 불가 | 불가 |
 | `GENERATING` | 불가 | 준비 중 | 불가 |
+| `PAUSED` | 불가 | 불가 | 불가 |
 | `LOCATION_SELECTION` | 불가 | 가능 | 가능 |
 | `COMPLETED` | 불가 | 가능 | 불가 |
 
@@ -477,7 +481,8 @@ generateTeams(registrations, history, settings, seed):
 | POST | `/admin/rounds` | 테스트/예외용 회차 수동 생성 |
 | GET | `/admin/rounds/{roundId}` | 참가 현황 포함 회차 상세 조회 |
 | POST | `/admin/rounds/{roundId}/open` | 예약 회차의 투표를 운영 환경에서도 즉시 열기 |
-| POST | `/admin/rounds/{roundId}/reopen` | 기존 조 편성을 삭제하고 참가자를 유지한 채 30분간 재투표 |
+| DELETE | `/admin/rounds/{roundId}/teams` | 기존 조 편성 삭제 후 `PAUSED` 전환, 참가자 유지 |
+| POST | `/admin/rounds/{roundId}/reopen` | `PAUSED` 회차의 투표를 30분간 다시 열기 |
 | POST | `/admin/rounds/{roundId}/generate` | 회차 강제 마감 및 조 생성 |
 | PATCH | `/admin/registrations/{registrationId}` | 참가자 이름/장소 정정 |
 | DELETE | `/admin/registrations/{registrationId}` | 등록 삭제 |
@@ -489,7 +494,7 @@ generateTeams(registrations, history, settings, seed):
 |---|---|---|
 | POST | `/dev/rounds/{roundId}/actions` | 투표 열기, 샘플 인원 추가, 즉시 편성, 강제 완료, 전체 초기화 |
 
-`open`, `reopen`, `generate` 관리자 API는 배포 환경에서도 기존 관리자 Bearer 토큰 인증 후 사용할 수 있다. `open`은 `SCHEDULED` 회차만 `OPEN`으로 전환하고 `opensAt`만 현재 시각으로 변경하며 기존 자동 마감 시각은 유지한다. `reopen`은 `LOCATION_SELECTION` 또는 `COMPLETED` 회차의 팀·팀원·생성 감사 기록을 트랜잭션으로 삭제하고 seed와 생성 시각을 초기화한 뒤, 기존 참가자 등록을 유지하면서 현재 시각부터 30분간 투표를 다시 연다. `TEAM_FIRST`의 장소 선택 마감은 재개 시각부터 40분 후로 다시 잡는다. 개발 API도 같은 관리자 토큰이 필요하지만, 샘플 인원·강제 완료·전체 초기화 같은 테스트 기능을 포함하므로 운영 환경에서는 경로 자체를 `404`로 숨긴다.
+`open`, `teams`, `reopen`, `generate` 관리자 API는 배포 환경에서도 기존 관리자 Bearer 토큰 인증 후 사용할 수 있다. `open`은 `SCHEDULED` 회차만 `OPEN`으로 전환하고 `opensAt`만 현재 시각으로 변경하며 기존 자동 마감 시각은 유지한다. `teams` 삭제는 `LOCATION_SELECTION` 또는 `COMPLETED` 회차의 팀·팀원·생성 감사 기록을 트랜잭션으로 삭제하고 seed와 생성 시각을 초기화한 뒤 `PAUSED`로 전환한다. 이 단계에서는 기존 참가자 등록을 유지하며 투표를 열지 않는다. `reopen`은 `PAUSED` 회차만 현재 시각부터 30분간 `OPEN`으로 전환한다. `TEAM_FIRST`의 장소 선택 마감은 재개 시각부터 40분 후로 다시 잡는다. 개발 API도 같은 관리자 토큰이 필요하지만, 샘플 인원·강제 완료·전체 초기화 같은 테스트 기능을 포함하므로 운영 환경에서는 경로 자체를 `404`로 숨긴다.
 
 관리자 등록 수정/삭제는 팀 생성 전까지만 가능하고, 팀 장소 지정은 `LOCATION_SELECTION`에서만 가능하다. 완료된 회차의 조 구성과 표시 이름은 감사 가능성을 위해 변경하지 않는다.
 
@@ -576,6 +581,7 @@ Content-Type: application/json
 | `SCHEDULED` | 투표 시작 시간 안내 |
 | `OPEN` | 이름/장소 폼 또는 내 등록 카드, 마감 카운트다운 |
 | `GENERATING` | 조 편성 중 안내, 서버의 결과 변경 이벤트 대기 |
+| `PAUSED` | 조 편성 삭제 및 관리자 재투표 대기 안내 |
 | `LOCATION_SELECTION` | 조 결과와 팀 장소 선택 UI |
 | `COMPLETED` | 최종 결과 |
 
@@ -830,7 +836,7 @@ JSON 로그 공통 필드:
 - LOCATION_FIRST 전체 사용자 흐름
 - TEAM_FIRST 등록 → 편성 → 팀 장소 선택 흐름
 - 새로고침 후 localStorage로 내 등록 복원
-- 관리자 등록 정정, 예약 회차 즉시 열기, 조 편성 삭제·재투표 및 강제 생성
+- 관리자 등록 정정, 예약 회차 즉시 열기, 조 편성 삭제, 별도 재투표 및 강제 생성
 - 참가 인원 변경의 SSE 실시간 반영과 연결 자동 복구
 - 개발 모드 강제 실행 도구 및 운영 환경 404
 
@@ -848,7 +854,8 @@ JSON 로그 공통 필드:
 - 프론트와 API가 HTTPS로 통신한다.
 - 참가 인원과 편성 상태가 주기적 polling 없이 서버 이벤트로 갱신된다.
 - 배포 환경의 관리자 화면에서 예약 회차를 즉시 열고 열린 회차를 즉시 편성할 수 있으며 두 요청 모두 기존 관리자 토큰을 검증한다.
-- 편성 완료 후 관리자가 기존 조를 삭제하면 참가자 등록은 유지되고 투표가 30분간 다시 열린다.
+- 편성 완료 후 관리자가 기존 조를 삭제하면 참가자 등록은 유지되고 회차는 `PAUSED`가 된다.
+- 관리자가 별도로 투표 다시 열기를 실행하면 `PAUSED` 회차가 30분간 `OPEN`으로 전환된다.
 - 샘플 인원 추가, 강제 완료, 전체 초기화 등 개발 전용 API는 운영 환경에 노출되지 않는다.
 - DB 백업과 복구 절차가 검증된다.
 

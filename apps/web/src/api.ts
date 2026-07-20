@@ -155,6 +155,11 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     }),
+  adminDeleteTeams: (token: string, roundId: string) =>
+    request<{ data: { round: RoundDto } }>(`/admin/rounds/${roundId}/teams`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   adminGenerate: (token: string, roundId: string) =>
     request<ResultsResponse>(`/admin/rounds/${roundId}/generate`, {
       method: "POST",

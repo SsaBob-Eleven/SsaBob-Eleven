@@ -70,25 +70,20 @@ export async function openRoundNow(roundId: string, now = new Date()) {
   return updated;
 }
 
-export async function reopenRoundVoting(roundId: string, now = new Date()) {
+export async function deleteRoundTeams(roundId: string) {
   const round = await prisma.round.findUnique({ where: { id: roundId } });
   if (!round) throw new AppError(404, "ROUND_NOT_FOUND", "회차를 찾을 수 없습니다.");
   if (round.status !== "LOCATION_SELECTION" && round.status !== "COMPLETED") {
-    throw new AppError(409, "ROUND_NOT_OPEN", "조 편성이 완료된 회차만 투표를 다시 열 수 있습니다.");
+    throw new AppError(409, "ROUND_NOT_OPEN", "조 편성이 생성된 회차만 삭제할 수 있습니다.");
   }
 
-  const closesAt = addMinutes(now, 30);
-  const locationClosesAt = round.flowMode === "TEAM_FIRST" ? addMinutes(now, 40) : null;
   const [, , updated] = await prisma.$transaction([
     prisma.team.deleteMany({ where: { roundId } }),
     prisma.generationAudit.deleteMany({ where: { roundId } }),
     prisma.round.update({
       where: { id: roundId },
       data: {
-        status: "OPEN",
-        opensAt: now,
-        closesAt,
-        locationClosesAt,
+        status: "PAUSED",
         randomSeed: null,
         generationStartedAt: null,
         generatedAt: null,
@@ -99,6 +94,31 @@ export async function reopenRoundVoting(roundId: string, now = new Date()) {
 
   publishRoundEvent(roundId, "round.updated", { status: updated.status });
   publishRoundEvent(roundId, "results.updated", { available: false });
+  return updated;
+}
+
+export async function reopenRoundVoting(roundId: string, now = new Date()) {
+  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  if (!round) throw new AppError(404, "ROUND_NOT_FOUND", "회차를 찾을 수 없습니다.");
+  if (round.status !== "PAUSED") {
+    throw new AppError(409, "ROUND_NOT_OPEN", "조 편성을 삭제한 일시 중지 회차만 투표를 다시 열 수 있습니다.");
+  }
+
+  const opened = await prisma.round.updateMany({
+    where: { id: roundId, status: "PAUSED" },
+    data: {
+      status: "OPEN",
+      opensAt: now,
+      closesAt: addMinutes(now, 30),
+      locationClosesAt: round.flowMode === "TEAM_FIRST" ? addMinutes(now, 40) : null,
+    },
+  });
+  if (opened.count !== 1) {
+    throw new AppError(409, "ROUND_NOT_OPEN", "다른 요청에서 회차 상태가 변경되었습니다.");
+  }
+
+  const updated = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });
+  publishRoundEvent(roundId, "round.updated", { status: updated.status });
   return updated;
 }
 
