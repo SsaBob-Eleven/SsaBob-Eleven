@@ -80,6 +80,20 @@ async function generate() {
   }
 }
 
+async function openVotingNow() {
+  if (!selected.value || !confirm("예약된 투표를 지금 바로 열까요? 기존 자동 마감 시각은 유지됩니다.")) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await api.adminOpen(token.value, selected.value.round.id);
+    await Promise.all([refreshSelected(selected.value.round.id), loadRounds()]);
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "투표를 열지 못했습니다.";
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function runDevAction(action: DevAction) {
   if (!selected.value) return;
   const destructive = action === "CLEAR_ALL" || action === "GENERATE_TEAMS";
@@ -141,7 +155,8 @@ onBeforeUnmount(() => unsubscribeRealtime?.());
             {{ realtimeConnected ? '실시간 연결됨' : '실시간 재연결 중' }}
           </span>
         </div>
-        <button v-if="selected.round.status === 'OPEN'" class="primary-button small" :disabled="loading" @click="generate">지금 조 만들기</button>
+        <button v-if="selected.round.status === 'SCHEDULED'" class="primary-button small" :disabled="loading" @click="openVotingNow">지금 투표 열기</button>
+        <button v-else-if="selected.round.status === 'OPEN'" class="primary-button small" :disabled="loading" @click="generate">지금 조 만들기</button>
       </div>
       <div class="participant-list">
         <span v-for="registration in selected.registrations" :key="registration.id">

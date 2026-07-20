@@ -40,7 +40,7 @@ pnpm.cmd dev
 - API: `http://localhost:3000/api/v1`
 - Health: `http://localhost:3000/api/v1/health/ready`
 
-개발 서버에서는 `/admin`에서 관리자 토큰을 입력한 뒤 투표 강제 열기, 샘플 인원 추가, 즉시 조 편성, 회차 완료와 초기화를 실행할 수 있습니다. 기본 개발용 관리자 토큰은 `development-admin-token-change-me`이며 운영에서는 반드시 별도의 긴 임의 값으로 교체합니다. 이 도구와 `/api/v1/dev/*` API는 `NODE_ENV=development`에서만 노출됩니다.
+`/admin`에서 관리자 토큰을 입력하면 로컬과 배포 환경 모두 예약 회차의 투표를 즉시 열고, 열린 회차를 즉시 마감해 조를 편성할 수 있습니다. 기존 자동 마감 시각은 유지되며 두 기능 모두 `Authorization: Bearer <ADMIN_TOKEN>` 인증을 사용합니다. 샘플 인원 추가, 회차 강제 완료와 전체 초기화 같은 `/api/v1/dev/*` 도구는 `NODE_ENV=development`에서만 노출됩니다. 기본 개발용 관리자 토큰은 `development-admin-token-change-me`이며 운영에서는 반드시 별도의 긴 임의 값으로 교체합니다.
 
 ## 검증
 

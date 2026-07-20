@@ -50,6 +50,26 @@ export function registrationRules(round: { status: string; flowMode: string }) {
   };
 }
 
+export async function openRoundNow(roundId: string, now = new Date()) {
+  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  if (!round) throw new AppError(404, "ROUND_NOT_FOUND", "회차를 찾을 수 없습니다.");
+  if (round.status !== "SCHEDULED") {
+    throw new AppError(409, "ROUND_NOT_OPEN", "예약 상태인 회차만 즉시 열 수 있습니다.");
+  }
+
+  const opened = await prisma.round.updateMany({
+    where: { id: roundId, status: "SCHEDULED" },
+    data: { status: "OPEN", opensAt: now },
+  });
+  if (opened.count !== 1) {
+    throw new AppError(409, "ROUND_NOT_OPEN", "다른 요청에서 회차 상태가 변경되었습니다.");
+  }
+
+  const updated = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });
+  publishRoundEvent(roundId, "round.updated", { status: updated.status });
+  return updated;
+}
+
 async function buildPairPenalties(roundId: string, historyWeeks: number): Promise<PairPenaltyMap> {
   if (historyWeeks === 0) return new Map();
   const current = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });

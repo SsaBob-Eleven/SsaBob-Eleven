@@ -356,6 +356,30 @@ paths:
         "409":
           $ref: "#/components/responses/ConflictError"
 
+  /admin/rounds/{roundId}/open:
+    post:
+      tags: [Admin]
+      summary: 예약 회차 즉시 열기
+      description: SCHEDULED 상태인 회차의 투표를 즉시 연다. 기존 자동 마감 시각은 유지한다.
+      operationId: openAdminRound
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      responses:
+        "200":
+          description: 열린 회차
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
   /admin/registrations/{registrationId}:
     parameters:
       - $ref: "#/components/parameters/RegistrationId"

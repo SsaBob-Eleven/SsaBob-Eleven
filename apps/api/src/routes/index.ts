@@ -13,7 +13,7 @@ import {
   requireEditableRegistration,
   updateRegistration,
 } from "../services/registration-service.js";
-import { ensureCurrentRound, generateRound, registrationRules } from "../services/round-service.js";
+import { ensureCurrentRound, generateRound, openRoundNow, registrationRules } from "../services/round-service.js";
 import { serializeRegistration, serializeRound, serializeTeam } from "../services/serializers.js";
 import { clearTeamLocation, resultTeamInclude, selectTeamLocation } from "../services/team-service.js";
 import { cleanDisplayName, normalizeName } from "../utils/name.js";
@@ -251,6 +251,12 @@ adminRouter.get("/rounds/:roundId", async (request, response) => {
         : null,
     },
   });
+});
+
+adminRouter.post("/rounds/:roundId/open", async (request, response) => {
+  const roundId = idSchema.parse(request.params.roundId);
+  const round = await openRoundNow(roundId);
+  response.json({ data: { round: serializeRound(round) } });
 });
 
 adminRouter.post("/rounds/:roundId/generate", async (request, response) => {

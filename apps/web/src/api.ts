@@ -145,6 +145,11 @@ export const api = {
       `/admin/rounds/${roundId}`,
       { headers: { Authorization: `Bearer ${token}` } },
     ),
+  adminOpen: (token: string, roundId: string) =>
+    request<{ data: { round: RoundDto } }>(`/admin/rounds/${roundId}/open`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   adminGenerate: (token: string, roundId: string) =>
     request<ResultsResponse>(`/admin/rounds/${roundId}/generate`, {
       method: "POST",
