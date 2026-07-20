@@ -8,8 +8,12 @@ info:
     조 크기는 4~5명을 목표로 하되 인원에 따라 ADAPTIVE 정책으로 자동 조정한다.
     모든 시각은 ISO 8601 UTC 문자열로 전달한다.
 servers:
-  - url: https://api.example.com/api/v1
-    description: Production
+  - url: https://{serviceName}.onrender.com/api/v1
+    description: Render production
+    variables:
+      serviceName:
+        default: ssabap-eleven-api
+        description: Render Web Service name
   - url: http://localhost:3000/api/v1
     description: Local
 tags:

@@ -8,11 +8,11 @@
 | 프론트엔드 | Vue 3, Vite, TypeScript |
 | 백엔드 | Node.js, Express, TypeScript |
 | 데이터베이스 | Prisma ORM, SQLite |
-| 배포 | Vercel(프론트엔드), AWS EC2(백엔드) |
+| 배포 | Netlify(프론트엔드), Render 단일 Web Service(백엔드) |
 | 기준 시간대 | Asia/Seoul |
 | 서비스 범위 | 대한민국 단일 지역, 한국어 UI, 회차당 최대 26명 |
 | API 규격 | `docs/openapi.yaml` |
-| 고정 설계 결정 | `docs/adr/0001-small-single-region-adaptive-groups.md` |
+| 고정 설계 결정 | 용량·편성: `docs/adr/0001-small-single-region-adaptive-groups.md`, 배포: `docs/adr/0002-netlify-render-single-instance.md` |
 
 ## 2. 목표와 범위
 
@@ -33,7 +33,7 @@
 - 과거 편성 이력을 반영한 조 생성
 - 결과 조회
 - 최소 관리자 기능
-- EC2 단일 인스턴스 운영과 SQLite 백업
+- Render 단일 Web Service 운영과 Persistent Disk의 SQLite 백업·복구 검증
 - 회차당 최대 26명과 대한민국 단일 지역 운영
 
 ### 2.3 MVP 제외 범위
@@ -41,7 +41,7 @@
 - 사내 SSO, 소셜 로그인
 - 이메일, Slack 등 외부 알림
 - 양방향 WebSocket 통신(단방향 상태 전파는 SSE로 제공)
-- 복수 EC2 인스턴스와 자동 확장
+- 복수 Render 인스턴스와 자동 확장
 - 다중 리전, 지역별 라우팅, 다국어 지원
 - 조 생성 후 일반 관리자의 임의 재추첨
 - 식당 메뉴 또는 예약 시스템 연동
@@ -69,7 +69,7 @@
 
 이름만으로는 본인 인증이나 사칭 방지가 불가능하다. 사내 신뢰 환경을 전제로 하며, 보안 수준을 높일 때는 `participant.employee_code` 또는 SSO 식별자를 추가한다.
 
-최대 26명, 대한민국 단일 지역, 적응형 조 크기 정책은 [ADR-0001](adr/0001-small-single-region-adaptive-groups.md)의 승인된 결정이다. 구현 중 대규모 분산 구조나 4~5명 하드 제한으로 되돌리지 않는다. 요구사항이 바뀌면 기존 문서를 조용히 수정하지 않고 새 ADR로 이 결정을 명시적으로 대체한다.
+최대 26명과 적응형 조 크기 정책은 [ADR-0001](adr/0001-small-single-region-adaptive-groups.md), Netlify·Render 단일 인스턴스 배포는 [ADR-0002](adr/0002-netlify-render-single-instance.md)의 승인된 결정이다. 구현 중 대규모 분산 구조나 4~5명 하드 제한으로 되돌리지 않는다. 요구사항이 바뀌면 기존 문서를 조용히 수정하지 않고 새 ADR로 변경 결정을 명시적으로 대체한다.
 
 ## 4. 운영 모드
 
@@ -137,15 +137,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    U["사용자 브라우저"] -->|HTTPS| V["Vercel\nVue SPA"]
-    V -->|REST/JSON HTTPS| C["Caddy 또는 Nginx\napi.example.com"]
-    C -->|SSE 지속 연결| V
-    C --> E["EC2 Docker\nExpress API + Worker"]
+    N["Netlify CDN\nVue SPA"] -->|정적 파일 HTTPS| U["사용자 브라우저"]
+    U -->|REST/JSON HTTPS| R["Render managed HTTPS\n단일 Docker Web Service"]
+    R -->|SSE 지속 연결| U
+    R --> E["Express API + Worker\n단일 Node 프로세스"]
     E --> P["Prisma"]
-    P --> D[("SQLite on EBS")]
+    P --> D[("SQLite\nRender Persistent Disk /var/data")]
     E --> L["JSON 로그"]
-    B["백업 작업"] --> D
-    B --> O["암호화된 외부 백업"]
+    S["Render disk snapshot\n+ SQLite 복구 절차"] --> D
 ```
 
 ### 5.1 컴포넌트 책임
@@ -156,8 +155,9 @@ flowchart LR
 | Express API | 검증, 권한 확인, 비즈니스 로직, REST API, 인프로세스 pub/sub와 SSE 전파 |
 | Worker | 회차 생성, 투표 마감, 조 생성, 팀 장소 선택 마감 |
 | Prisma | 데이터 접근과 마이그레이션 |
-| SQLite | 참가자, 회차, 등록, 팀, 감사 데이터 영속화 |
-| Reverse Proxy | TLS 종료, API 프록시, 기본 요청 제한 |
+| SQLite | Render Persistent Disk의 `/var/data/lunch.db`에 참가자, 회차, 등록, 팀, 감사 데이터 영속화 |
+| Netlify | Vue 정적 파일 빌드·배포, CDN, TLS, SPA routing rewrite |
+| Render | Docker Web Service 실행, TLS 종료, health check, Persistent Disk 연결 |
 
 ### 5.2 코드 구조
 
@@ -594,11 +594,11 @@ value: {
 - Express 프로세스 내부 `EventEmitter`를 회차별 pub/sub 버스로 사용한다.
 - 등록 생성/삭제, 관리자 등록 변경, 회차 상태 전환, 조 생성, 팀 장소 변경이 커밋된 뒤 이벤트를 발행한다.
 - SSE는 서버→브라우저 단방향 알림이므로 참가 등록과 관리자 명령은 기존 REST API를 사용한다.
-- 단일 EC2·단일 Node 프로세스라는 승인된 운영 구조에서만 이벤트 전달을 보장한다. 복수 프로세스가 필요해지면 외부 pub/sub 도입을 새 ADR로 결정한다.
+- 단일 Render Web Service·단일 Node 프로세스라는 승인된 운영 구조에서만 이벤트 전달을 보장한다. 복수 프로세스가 필요해지면 외부 pub/sub 도입을 새 ADR로 결정한다.
 
 ## 11. 스케줄러 설계
 
-### 11.1 단일 EC2 MVP 방식
+### 11.1 단일 Render Web Service 방식
 
 Express 프로세스 내부 worker가 `SCHEDULER_POLL_INTERVAL_MS`마다 다음 작업을 수행한다.
 
@@ -614,7 +614,7 @@ Express 프로세스 내부 worker가 `SCHEDULER_POLL_INTERVAL_MS`마다 다음 
 
 - 회차당 최대 26명만 지원한다.
 - 대한민국 사용자만 대상으로 하며 시간대는 `Asia/Seoul`, 화면 언어는 `ko-KR`로 고정한다.
-- AWS는 서울 리전(`ap-northeast-2`)의 단일 EC2 인스턴스를 기본으로 한다.
+- 호스팅은 Render에서 선택 가능한 단일 리전을 사용하며 특정 AWS 서울 리전은 요구하지 않는다.
 - 다중 리전, 자동 확장, 메시지 큐, 분산 worker, PostgreSQL 전환은 현재 범위가 아니다.
 - 26명 초과나 고가용성 요구가 새로 생길 때에만 별도 ADR을 작성해 구조 변경을 검토한다.
 
@@ -622,7 +622,7 @@ Express 프로세스 내부 worker가 `SCHEDULER_POLL_INTERVAL_MS`마다 다음 
 
 ```env
 NODE_ENV=production
-PORT=3000
+# PORT는 Render가 주입
 APP_TIMEZONE=Asia/Seoul
 APP_LOCALE=ko-KR
 MAX_PARTICIPANTS_PER_ROUND=26
@@ -643,14 +643,14 @@ GENERATION_STALE_MINUTES=5
 SCHEDULER_POLL_INTERVAL_MS=30000
 SSE_HEARTBEAT_INTERVAL_MS=20000
 
-DATABASE_URL=file:/data/lunch.db
-WEB_ORIGIN=https://lunch.example.com
+DATABASE_URL=file:/var/data/lunch.db
+WEB_ORIGIN=https://<netlify-site>.netlify.app
 ADMIN_TOKEN=replace-with-long-random-token
 EDIT_TOKEN_PEPPER=replace-with-long-random-secret
 LOG_LEVEL=info
 
-# web
-VITE_API_BASE_URL=https://api.example.com/api/v1
+# Netlify build environment
+VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 ```
 
 검증 규칙:
@@ -663,18 +663,22 @@ VITE_API_BASE_URL=https://api.example.com/api/v1
 - `TEAM_FIRST`의 장소 선택 마감은 투표 마감보다 늦어야 한다.
 - secret이 기본값이거나 너무 짧으면 production 시작을 거부한다.
 - 환경변수 변경은 새로 생성하는 회차부터 적용한다.
+- Render가 주입한 `PORT`를 사용하고 서버는 `0.0.0.0`에서 요청을 받아야 한다.
+- `DATABASE_URL`은 `/var/data`에 마운트한 Render Persistent Disk 아래를 가리켜야 한다.
+- Netlify의 `VITE_API_BASE_URL`은 빌드 시 주입되므로 값 변경 후 새 배포가 필요하다.
 
 ## 13. 보안 설계
 
 - `helmet`으로 기본 보안 헤더 설정
-- `cors`는 정확한 Vercel 운영/프리뷰 origin allowlist 사용
+- `cors`는 정확한 Netlify 운영 origin allowlist를 사용하고, 필요한 Preview origin만 명시적으로 추가
 - 등록 API는 IP 기준, 편집 API는 IP+토큰 기준 rate limit
 - 이름은 Unicode 정규화(NFKC)와 trim 후 내부 공백 없이 정확히 3글자로 제한
 - HTML은 Vue 기본 escaping을 사용하고 `v-html` 사용 금지
 - 편집 토큰과 관리자 토큰을 로그에 남기지 않음
 - 편집 토큰은 최소 256-bit 랜덤 값, DB에는 해시만 저장
 - 관리자 토큰 비교는 timing-safe compare 사용
-- API는 HTTPS만 공개하고 EC2의 Node 포트는 보안 그룹에 노출하지 않음
+- API는 Render가 제공하는 HTTPS endpoint만 공개하고 TLS는 Render에서 종료
+- Render 프록시 뒤의 실제 클라이언트 IP를 사용하도록 Express `trust proxy`를 설정한 뒤 rate limit 동작 검증
 - 요청 본문 크기를 작은 값(예: 16KB)으로 제한
 - Prisma raw query는 필요한 경우에도 매개변수 바인딩 사용
 - 에러 응답에 stack trace, SQL, 환경변수를 포함하지 않음
@@ -683,40 +687,63 @@ VITE_API_BASE_URL=https://api.example.com/api/v1
 
 ## 14. 배포 설계
 
-### 14.1 Vercel
+### 14.1 Netlify 프론트엔드
 
-- Root Directory: `apps/web`
-- Build Command: `pnpm build`
-- Output Directory: `dist`
-- `VITE_API_BASE_URL`을 Preview/Production별 설정
-- Vue Router history mode를 위한 SPA rewrite 설정
-- main 브랜치 production, PR preview 배포
+| 설정 | 값 |
+|---|---|
+| Base Directory | 저장소 루트 |
+| Build Command | `pnpm --filter @ssabap/shared build && pnpm --filter @ssabap/web build` |
+| Publish Directory | `apps/web/dist` |
+| 환경변수 | `NODE_VERSION=22`, `VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1` |
 
-### 14.2 AWS EC2
+- pnpm workspace의 `packages/shared`를 먼저 빌드해야 하므로 `apps/web`만 독립 프로젝트처럼 빌드하지 않는다.
+- Vue Router history mode를 위해 `/*` 요청을 `/index.html`로 보내는 status `200` rewrite를 적용한다.
+- main 브랜치를 production에 연결하고 필요할 때만 Deploy Preview를 사용한다.
+- Preview에서도 API를 호출해야 한다면 해당 Preview origin을 Render의 `WEB_ORIGIN` allowlist에 명시적으로 추가한다.
+- Netlify build는 저장소의 `.env`를 자동으로 읽는 전제로 운영하지 않는다. `VITE_API_BASE_URL`은 Netlify UI/CLI의 build 환경변수로 등록하고 변경 후 재배포한다.
 
-```text
-EC2
-├─ caddy/nginx container : 80, 443
-├─ api container         : internal 3000
-└─ persistent volume     : /data/lunch.db
-```
+### 14.2 Render 백엔드
 
-- Docker Compose로 reverse proxy와 API 실행
-- 서울 리전(`ap-northeast-2`)의 단일 EC2 인스턴스에 배포
-- 보안 그룹은 80/443 공개, SSH는 관리자 IP만 허용
-- API custom domain과 TLS 인증서 적용
-- 컨테이너 `restart: unless-stopped`
-- SQLite 파일은 EBS 영속 경로에 저장
-- 배포 전 `prisma migrate deploy` 실행
-- 다중 리전, 다중 API 인스턴스, 무중단 클러스터 배포는 요구 규모상 구현하지 않음
+| 설정 | 값 |
+|---|---|
+| Service Type | Web Service |
+| Runtime | Docker |
+| Docker Build Context | 저장소 루트 |
+| Dockerfile Path | `apps/api/Dockerfile` |
+| Health Check Path | `/api/v1/health/ready` |
+| Instance Count | 1 |
+| Persistent Disk Mount Path | `/var/data` |
+| Database URL | `file:/var/data/lunch.db` |
 
-### 14.3 백업
+- Render가 주입하는 `PORT`를 사용하고 `0.0.0.0`에 바인딩한다.
+- Render가 TLS와 public HTTPS endpoint를 관리하므로 Caddy/Nginx와 `docker-compose.yml`은 운영 경로에 포함하지 않는다.
+- `packages/shared`가 Docker build에 필요하므로 Build Context를 `apps/api`로 좁히지 않는다.
+- Render pre-deploy command는 Persistent Disk에 접근할 수 없다. 기존 Docker 시작 명령에서 `prisma migrate deploy`를 실행한 뒤 API를 시작한다.
+- `WEB_ORIGIN=https://<netlify-site>.netlify.app`를 설정하고 `ADMIN_TOKEN`, `EDIT_TOKEN_PEPPER`는 서로 다른 긴 임의 secret으로 등록한다.
+- SQLite와 인프로세스 pub/sub를 사용하므로 autoscaling과 복수 인스턴스를 활성화하지 않는다.
+- Render 기본 파일시스템은 임시 저장소이므로 운영 데이터는 반드시 `/var/data` 아래에 저장한다. Persistent Disk를 제공하지 않는 무료 Web Service는 운영 SQLite 용도로 사용할 수 없다.
 
-- SQLite online backup 또는 안전한 snapshot 방식 사용
-- 최소 매일 1회, 조 생성 직후 1회 백업
-- 30일 보관 후 순환 삭제
-- 주 1회 복구 테스트
-- 백업 파일 암호화 및 애플리케이션 서버와 다른 저장소 사용
+### 14.3 데이터 보호와 복구
+
+- Render Persistent Disk의 암호화와 일일 snapshot을 기본 보호 수단으로 사용한다.
+- snapshot만 믿지 않고 조 생성 직후 또는 최소 일 1회 SQLite 일관성 백업을 별도 저장소로 내보내는 절차를 마련한다.
+- 복구 시점에 DB 파일과 애플리케이션 스키마 버전이 맞는지 확인한다.
+- 배포 전 테스트 환경에서 Persistent Disk 재연결, 재배포 후 데이터 유지, snapshot 또는 SQLite 백업 복구를 검증한다.
+- 백업 보관 기간과 삭제 정책은 실제 Render 요금제 및 조직 정책을 확인한 뒤 운영 체크리스트에 확정한다.
+
+### 14.4 현재 저장소 반영 상태
+
+| 항목 | 상태 | 배포 전 조치 |
+|---|---|---|
+| Render Docker build | 기존 `apps/api/Dockerfile` 사용 가능 | Render의 Build Context를 저장소 루트로 지정하고 실제 image build 검증 |
+| Prisma migration | Docker 시작 명령에 `prisma migrate deploy` 포함 | Persistent Disk가 연결된 test service에서 최초 기동과 재기동 검증 |
+| CORS allowlist | 쉼표로 구분한 `WEB_ORIGIN` 지원 | 실제 Netlify production/필요한 preview origin 입력 |
+| Netlify SPA rewrite | 저장소 설정 없음 | `netlify.toml` 또는 Netlify UI에 `/* -> /index.html 200` 반영 |
+| Render proxy 대응 | `trust proxy` 미설정 | 프록시 뒤 실제 IP와 rate limit 동작을 확인해 코드에 설정 |
+| Render listen address | `PORT` 사용, host 명시 없음 | Render에서 접근을 검증하고 필요하면 `0.0.0.0` 명시 |
+| 과거 배포 파일 | `apps/web/vercel.json`, `Caddyfile`, `docker-compose.yml` 존재 | Netlify·Render 운영 경로에서는 사용하지 않으며 후속 배포 구현에서 정리 |
+
+이 절은 설계 완료와 배포 준비 완료를 구분하기 위한 상태표다. 플랫폼 전환 문서는 확정됐지만 위 조치를 마치기 전까지 Netlify·Render 운영 배포 준비가 완료된 것으로 간주하지 않는다.
 
 ## 15. 관측성과 운영
 
@@ -826,7 +853,7 @@ JSON 로그 공통 필드:
 8. 사용자 Vue 화면
 9. 관리자 API와 최소 관리자 화면
 10. 단위/통합/E2E 테스트
-11. Docker, reverse proxy, EC2/Vercel 배포
+11. Netlify SPA rewrite와 Render Docker/Persistent Disk 배포 설정
 12. 운영 리허설과 백업 복구 테스트
 
 ## 19. 향후 기능 확장 순서
@@ -838,4 +865,4 @@ JSON 로그 공통 필드:
 5. 관리자용 알고리즘 점수/중복 관계 시각화
 6. 결석, 고정 조, 반드시 분리할 사람 등 추가 제약
 
-확장 기능 역시 최대 26명·대한민국 단일 지역·단일 EC2/SQLite라는 현재 경계 안에서 구현한다. 이 경계를 바꾸는 요구는 기능 백로그가 아니라 별도 아키텍처 결정 대상이다.
+확장 기능 역시 최대 26명·대한민국 사용자 대상·단일 Render 인스턴스/SQLite라는 현재 경계 안에서 구현한다. 이 경계를 바꾸는 요구는 기능 백로그가 아니라 별도 아키텍처 결정 대상이다.
