@@ -1,0 +1,18 @@
+{
+  "name": "ssabap-eleven",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm --filter @ssabap/shared build && pnpm --filter @ssabap/api build && pnpm --filter @ssabap/web build",
+    "dev": "pnpm --filter @ssabap/shared build && concurrently -n api,web -c blue,green \"pnpm --filter @ssabap/api dev\" \"pnpm --filter @ssabap/web dev\"",
+    "test": "pnpm --filter @ssabap/api test",
+    "typecheck": "pnpm --filter @ssabap/shared build && pnpm --filter @ssabap/api typecheck && pnpm --filter @ssabap/web typecheck",
+    "db:generate": "pnpm --filter @ssabap/api prisma:generate",
+    "db:migrate": "pnpm --filter @ssabap/api prisma:migrate",
+    "db:seed": "pnpm --filter @ssabap/api prisma:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

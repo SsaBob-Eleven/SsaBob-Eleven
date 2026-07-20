@@ -40,7 +40,7 @@
 
 - 사내 SSO, 소셜 로그인
 - 이메일, Slack 등 외부 알림
-- 실시간 WebSocket 갱신
+- 양방향 WebSocket 통신(단방향 상태 전파는 SSE로 제공)
 - 복수 EC2 인스턴스와 자동 확장
 - 다중 리전, 지역별 라우팅, 다국어 지원
 - 조 생성 후 일반 관리자의 임의 재추첨
@@ -52,8 +52,8 @@
 
 | 항목 | 정책 |
 |---|---|
-| 사용자 식별 | 공백 정리와 대소문자 정규화를 적용한 이름 |
-| 동명이인 | 이름 뒤에 팀명/이니셜 등을 붙여 서로 다른 이름으로 등록 |
+| 사용자 식별 | Unicode 정규화와 앞뒤 공백 제거 후 공백 없는 정확히 3글자 이름 |
+| 동명이인 | 서로 구분되는 공백 없는 3글자 별칭으로 등록 |
 | 중복 등록 | 한 회차에 동일 참가자는 한 번만 등록 가능 |
 | 등록 수정 | 최초 등록 때 발급한 편집 토큰 필요 |
 | 편집 토큰 분실 | 사용자가 직접 복구할 수 없으며 관리자가 등록을 수정/삭제 |
@@ -139,6 +139,7 @@ sequenceDiagram
 flowchart LR
     U["사용자 브라우저"] -->|HTTPS| V["Vercel\nVue SPA"]
     V -->|REST/JSON HTTPS| C["Caddy 또는 Nginx\napi.example.com"]
+    C -->|SSE 지속 연결| V
     C --> E["EC2 Docker\nExpress API + Worker"]
     E --> P["Prisma"]
     P --> D[("SQLite on EBS")]
@@ -151,8 +152,8 @@ flowchart LR
 
 | 컴포넌트 | 책임 |
 |---|---|
-| Vue SPA | 현재 회차 표시, 등록/수정/취소, 결과, 관리자 UI |
-| Express API | 검증, 권한 확인, 비즈니스 로직, REST API |
+| Vue SPA | 현재 회차 표시, 등록/수정/취소, 결과, 관리자 UI, SSE 이벤트 반영 |
+| Express API | 검증, 권한 확인, 비즈니스 로직, REST API, 인프로세스 pub/sub와 SSE 전파 |
 | Worker | 회차 생성, 투표 마감, 조 생성, 팀 장소 선택 마감 |
 | Prisma | 데이터 접근과 마이그레이션 |
 | SQLite | 참가자, 회차, 등록, 팀, 감사 데이터 영속화 |
@@ -453,6 +454,7 @@ generateTeams(registrations, history, settings, seed):
 | GET | `/health/live` | 프로세스 생존 확인 |
 | GET | `/health/ready` | DB 포함 준비 상태 확인 |
 | GET | `/rounds/current` | 현재 회차와 화면 규칙 조회 |
+| GET | `/events?roundId={roundId}` | 회차 변경 이벤트 SSE 구독 |
 | POST | `/rounds/{roundId}/registrations` | 참가 등록 및 편집 토큰 발급 |
 | GET | `/registrations/{registrationId}` | 편집 토큰으로 내 등록/팀 조회 |
 | PATCH | `/registrations/{registrationId}` | 마감 전 내 등록 수정 |
@@ -472,6 +474,14 @@ generateTeams(registrations, history, settings, seed):
 | PATCH | `/admin/registrations/{registrationId}` | 참가자 이름/장소 정정 |
 | DELETE | `/admin/registrations/{registrationId}` | 등록 삭제 |
 | PUT | `/admin/teams/{teamId}/location` | 팀 장소 강제 지정/정정 |
+
+개발 환경(`NODE_ENV=development`) 전용 API:
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/dev/rounds/{roundId}/actions` | 투표 열기, 샘플 인원 추가, 즉시 편성, 강제 완료, 전체 초기화 |
+
+개발 API도 관리자 Bearer 토큰이 필요하며, 운영 환경에서는 경로 자체를 `404`로 숨긴다.
 
 관리자 등록 수정/삭제는 팀 생성 전까지만 가능하고, 팀 장소 지정은 `LOCATION_SELECTION`에서만 가능하다. 완료된 회차의 조 구성과 표시 이름은 감사 가능성을 위해 변경하지 않는다.
 
@@ -557,7 +567,7 @@ Content-Type: application/json
 |---|---|
 | `SCHEDULED` | 투표 시작 시간 안내 |
 | `OPEN` | 이름/장소 폼 또는 내 등록 카드, 마감 카운트다운 |
-| `GENERATING` | 조 편성 중 안내와 짧은 polling |
+| `GENERATING` | 조 편성 중 안내, 서버의 결과 변경 이벤트 대기 |
 | `LOCATION_SELECTION` | 조 결과와 팀 장소 선택 UI |
 | `COMPLETED` | 최종 결과 |
 
@@ -574,8 +584,17 @@ value: {
 
 - 토큰은 Pinia 전역 영속화 플러그인보다 작은 전용 저장 모듈로 관리한다.
 - API 응답의 `serverTime`을 기준으로 카운트다운 오차를 보정한다.
-- polling은 `GENERATING`일 때 2~3초, 그 외에는 사용자 새로고침 위주로 제한한다.
+- 화면 진입 시 회차별 `EventSource` 연결을 하나 열고 서버가 참가 인원, 회차 상태, 편성 결과, 팀 장소 변경 이벤트를 전송한다.
+- 참가 인원은 `registration.count.changed` payload를 즉시 반영하고, 상태/결과 이벤트 때만 해당 REST 리소스를 다시 조회한다. 주기적 HTTP polling은 사용하지 않는다.
+- 브라우저의 SSE 자동 재연결을 사용하며 서버는 연결 유지를 위한 comment heartbeat만 전송한다.
 - 프론트의 운영 모드는 `/rounds/current` 응답을 신뢰한다.
+
+### 10.4 실시간 pub/sub 경계
+
+- Express 프로세스 내부 `EventEmitter`를 회차별 pub/sub 버스로 사용한다.
+- 등록 생성/삭제, 관리자 등록 변경, 회차 상태 전환, 조 생성, 팀 장소 변경이 커밋된 뒤 이벤트를 발행한다.
+- SSE는 서버→브라우저 단방향 알림이므로 참가 등록과 관리자 명령은 기존 REST API를 사용한다.
+- 단일 EC2·단일 Node 프로세스라는 승인된 운영 구조에서만 이벤트 전달을 보장한다. 복수 프로세스가 필요해지면 외부 pub/sub 도입을 새 ADR로 결정한다.
 
 ## 11. 스케줄러 설계
 
@@ -622,6 +641,7 @@ HISTORY_WEEKS=8
 RANDOM_ATTEMPTS=500
 GENERATION_STALE_MINUTES=5
 SCHEDULER_POLL_INTERVAL_MS=30000
+SSE_HEARTBEAT_INTERVAL_MS=20000
 
 DATABASE_URL=file:/data/lunch.db
 WEB_ORIGIN=https://lunch.example.com
@@ -638,6 +658,7 @@ VITE_API_BASE_URL=https://api.example.com/api/v1
 - 운영 모드와 요일/시간 enum을 시작 시 Zod로 검증한다.
 - `MAX_PARTICIPANTS_PER_ROUND=26`을 기본이자 운영 상한으로 사용한다.
 - `TARGET_GROUP_MIN_SIZE <= TARGET_GROUP_MAX_SIZE`여야 한다.
+- `SSE_HEARTBEAT_INTERVAL_MS`는 5,000~60,000ms 범위여야 한다.
 - 목표값 4~5는 환경변수로 조정할 수 있지만 `GROUP_SIZE_POLICY=ADAPTIVE`는 유지한다.
 - `TEAM_FIRST`의 장소 선택 마감은 투표 마감보다 늦어야 한다.
 - secret이 기본값이거나 너무 짧으면 production 시작을 거부한다.
@@ -648,7 +669,7 @@ VITE_API_BASE_URL=https://api.example.com/api/v1
 - `helmet`으로 기본 보안 헤더 설정
 - `cors`는 정확한 Vercel 운영/프리뷰 origin allowlist 사용
 - 등록 API는 IP 기준, 편집 API는 IP+토큰 기준 rate limit
-- 이름은 Unicode 정규화(NFKC), trim, 연속 공백 축약 후 길이 1~30자로 제한
+- 이름은 Unicode 정규화(NFKC)와 trim 후 내부 공백 없이 정확히 3글자로 제한
 - HTML은 Vue 기본 escaping을 사용하고 `v-html` 사용 금지
 - 편집 토큰과 관리자 토큰을 로그에 남기지 않음
 - 편집 토큰은 최소 256-bit 랜덤 값, DB에는 해시만 저장
@@ -737,13 +758,14 @@ JSON 로그 공통 필드:
 
 ### 16.1 단위 테스트
 
-- 이름 정규화
+- 이름 정규화 및 공백 없는 정확히 3글자 검증
 - 회차 시간 계산과 KST/UTC 변환
 - 모든 인원수에 대한 조 크기 계산
 - seeded random 재현성
 - pair penalty와 후보 점수
 - 운영 모드별 버킷 분리
 - 팀 장소 선택 권한
+- 회차별 이벤트 격리와 구독 해제
 
 ### 16.2 속성 기반 테스트
 
@@ -773,6 +795,8 @@ JSON 로그 공통 필드:
 - TEAM_FIRST 등록 → 편성 → 팀 장소 선택 흐름
 - 새로고침 후 localStorage로 내 등록 복원
 - 관리자 등록 정정 및 강제 생성
+- 참가 인원 변경의 SSE 실시간 반영과 연결 자동 복구
+- 개발 모드 강제 실행 도구 및 운영 환경 404
 
 ## 17. 완료 조건
 
@@ -786,6 +810,8 @@ JSON 로그 공통 필드:
 - 최근 조 이력이 있는 테스트 데이터에서 단순 셔플 평균보다 반복 점수가 낮다.
 - 자동 생성 API/worker가 중복 호출되어도 결과가 한 번만 저장된다.
 - 프론트와 API가 HTTPS로 통신한다.
+- 참가 인원과 편성 상태가 주기적 polling 없이 서버 이벤트로 갱신된다.
+- 개발 모드에서는 관리자 화면에서 주요 상태 전환과 조 편성을 강제로 실행할 수 있고 운영 모드에서는 해당 API가 노출되지 않는다.
 - DB 백업과 복구 절차가 검증된다.
 
 ## 18. 구현 순서

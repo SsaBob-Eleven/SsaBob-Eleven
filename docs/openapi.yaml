@@ -18,6 +18,8 @@ tags:
   - name: Registrations
   - name: Teams
   - name: Admin
+  - name: Events
+  - name: Development
 
 paths:
   /health/live:
@@ -51,6 +53,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /events:
+    get:
+      tags: [Events]
+      summary: 회차 실시간 이벤트 구독
+      description: |
+        서버가 참가 인원, 회차 상태, 편성 결과와 팀 장소 변경을 전송하는 SSE 스트림이다.
+        주기적 HTTP polling을 대체하며 EventSource가 연결 끊김을 자동으로 복구한다.
+      operationId: subscribeRoundEvents
+      parameters:
+        - name: roundId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: `data:` 필드에 RoundEvent JSON을 담는 지속 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
 
   /rounds/current:
     get:
@@ -403,6 +430,40 @@ paths:
         "409":
           $ref: "#/components/responses/ConflictError"
 
+  /dev/rounds/{roundId}/actions:
+    post:
+      tags: [Development]
+      summary: 개발 환경 회차 기능 강제 실행
+      description: |
+        NODE_ENV=development에서만 제공한다. 운영 환경에서는 404를 반환한다.
+        관리자 토큰이 필요하며 투표 열기, 샘플 인원 추가, 즉시 편성, 강제 완료와 초기화를 실행한다.
+      operationId: executeDevelopmentRoundAction
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DevActionRequest"
+      responses:
+        "200":
+          description: 실행 후 회차와 안내 메시지
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevActionResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
 components:
   securitySchemes:
     EditToken:
@@ -540,8 +601,10 @@ components:
           format: uuid
         name:
           type: string
-          minLength: 1
-          maxLength: 30
+          minLength: 3
+          maxLength: 3
+          pattern: "^\\S{3}$"
+          description: NFKC 정규화와 trim 후 내부 공백 없이 정확히 3글자
 
     Round:
       type: object
@@ -686,8 +749,9 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
-          maxLength: 30
+          minLength: 3
+          maxLength: 3
+          pattern: "^\\S{3}$"
           example: 홍길동
         preferredLocation:
           oneOf:
@@ -702,8 +766,9 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
-          maxLength: 30
+          minLength: 3
+          maxLength: 3
+          pattern: "^\\S{3}$"
         preferredLocation:
           oneOf:
             - $ref: "#/components/schemas/Location"
@@ -924,6 +989,55 @@ components:
           maxLength: 200
           default: 관리자 수동 마감
 
+    DevAction:
+      type: string
+      enum: [OPEN_VOTING, GENERATE_TEAMS, COMPLETE_ROUND, ADD_SAMPLE_PARTICIPANTS, CLEAR_ALL]
+
+    DevActionRequest:
+      type: object
+      required: [action]
+      additionalProperties: false
+      properties:
+        action:
+          $ref: "#/components/schemas/DevAction"
+        count:
+          type: integer
+          minimum: 1
+          maximum: 26
+          description: ADD_SAMPLE_PARTICIPANTS에서 추가할 최대 인원
+
+    DevActionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [round, message]
+          properties:
+            round:
+              $ref: "#/components/schemas/Round"
+            message:
+              type: string
+
+    RoundEvent:
+      type: object
+      required: [id, type, roundId, occurredAt, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [connected, registration.count.changed, registration.updated, round.updated, results.updated, team.updated]
+        roundId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+
     AdminUpdateRegistrationRequest:
       type: object
       minProperties: 1
@@ -931,8 +1045,9 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
-          maxLength: 30
+          minLength: 3
+          maxLength: 3
+          pattern: "^\\S{3}$"
         preferredLocation:
           oneOf:
             - $ref: "#/components/schemas/Location"
@@ -1072,6 +1187,7 @@ components:
             - ROUND_CAPACITY_REACHED
             - RATE_LIMITED
             - INTERNAL_ERROR
+            - ROUTE_NOT_FOUND
         message:
           type: string
         details:
