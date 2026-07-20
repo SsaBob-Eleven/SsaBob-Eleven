@@ -1,7 +1,9 @@
 import "dotenv/config";
 import { z } from "zod";
+import type { Weekday } from "../utils/dates.js";
 
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const weekdaysPattern = /^(MON|TUE|WED|THU|FRI|SAT|SUN)(,(MON|TUE|WED|THU|FRI|SAT|SUN))*$/;
 
 const schema = z
   .object({
@@ -12,9 +14,12 @@ const schema = z
     APP_LOCALE: z.literal("ko-KR").default("ko-KR"),
     MAX_PARTICIPANTS_PER_ROUND: z.coerce.number().int().min(1).max(26).default(26),
     FLOW_MODE: z.enum(["LOCATION_FIRST", "TEAM_FIRST"]).default("LOCATION_FIRST"),
-    EVENT_WEEKDAY: z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]).default("FRI"),
-    VOTE_OPEN_DAY: z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]).default("MON"),
-    VOTE_OPEN_TIME: z.string().regex(timePattern).default("09:00"),
+    VOTE_WEEKDAYS: z
+      .string()
+      .regex(weekdaysPattern)
+      .default("MON,TUE,WED,THU,FRI")
+      .transform((value) => [...new Set(value.split(","))] as Weekday[]),
+    VOTE_OPEN_TIME: z.string().regex(timePattern).default("08:30"),
     VOTE_CLOSE_TIME: z.string().regex(timePattern).default("11:30"),
     TEAM_LOCATION_CLOSE_TIME: z.string().regex(timePattern).default("11:40"),
     GROUP_SIZE_POLICY: z.literal("ADAPTIVE").default("ADAPTIVE"),
@@ -31,6 +36,20 @@ const schema = z
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   })
   .superRefine((value, context) => {
+    if (value.VOTE_OPEN_TIME >= value.VOTE_CLOSE_TIME) {
+      context.addIssue({
+        code: "custom",
+        path: ["VOTE_CLOSE_TIME"],
+        message: "VOTE_CLOSE_TIME must be later than VOTE_OPEN_TIME for a daily round",
+      });
+    }
+    if (value.FLOW_MODE === "TEAM_FIRST" && value.VOTE_CLOSE_TIME >= value.TEAM_LOCATION_CLOSE_TIME) {
+      context.addIssue({
+        code: "custom",
+        path: ["TEAM_LOCATION_CLOSE_TIME"],
+        message: "TEAM_LOCATION_CLOSE_TIME must be later than VOTE_CLOSE_TIME in TEAM_FIRST mode",
+      });
+    }
     if (value.TARGET_GROUP_MIN_SIZE > value.TARGET_GROUP_MAX_SIZE) {
       context.addIssue({
         code: "custom",

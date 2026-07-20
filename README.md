@@ -1,6 +1,6 @@
 # 싸밥일레븐
 
-최대 26명의 주간 점심 투표와 적응형 랜덤 조 편성 서비스입니다. 참가자 이름은 공백 없이 정확히 3글자로 입력해야 합니다.
+최대 26명이 평일마다 참여하는 점심 투표와 적응형 랜덤 조 편성 서비스입니다. 참가자 이름은 공백 없이 정확히 3글자로 입력해야 합니다.
 
 ## 구성
 
@@ -55,9 +55,8 @@ pnpm build
 ```env
 MAX_PARTICIPANTS_PER_ROUND=26
 FLOW_MODE=LOCATION_FIRST
-EVENT_WEEKDAY=WED
-VOTE_OPEN_DAY=WED
-VOTE_OPEN_TIME=09:00
+VOTE_WEEKDAYS=MON,TUE,WED,THU,FRI
+VOTE_OPEN_TIME=08:30
 VOTE_CLOSE_TIME=11:30
 GROUP_SIZE_POLICY=ADAPTIVE
 TARGET_GROUP_MIN_SIZE=4
@@ -65,6 +64,8 @@ TARGET_GROUP_MAX_SIZE=5
 APP_TIMEZONE=Asia/Seoul
 SSE_HEARTBEAT_INTERVAL_MS=20000
 ```
+
+한국 시간 기준 월요일부터 금요일까지 매일 08:30에 새 회차가 열리고 11:30에 자동으로 마감·조 편성됩니다. 토요일과 일요일에는 다음 월요일 회차가 예약 상태로 표시됩니다. 기존 API 호환성을 위해 회차 키 필드명은 `weekKey`를 유지하지만, 자동 생성되는 값은 일간 회차를 구분하는 `YYYY-MM-DD` 형식입니다.
 
 4~5명은 목표 크기입니다. 장소별 인원으로 정확히 나눌 수 없으면 모든 참가자를 포함하는 가장 균등한 조를 만들고 `sizeAdjusted=true`로 표시합니다.
 

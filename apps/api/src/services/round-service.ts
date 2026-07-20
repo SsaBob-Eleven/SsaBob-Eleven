@@ -4,19 +4,18 @@ import { env } from "../config/env.js";
 import { prisma } from "../db.js";
 import { AppError } from "../errors.js";
 import { publishRoundEvent } from "../realtime/publishers.js";
-import { addMinutes, getIsoWeekKey, getWeeklySchedule } from "../utils/dates.js";
+import { addMinutes, getDailySchedule, getKstDateKey, getNextActiveDate } from "../utils/dates.js";
 import { generateTeamDrafts, pairKey, type PairPenaltyMap } from "./team-generator.js";
 
 export async function ensureCurrentRound(now = new Date()) {
-  const weekKey = getIsoWeekKey(now);
+  const scheduleDate = getNextActiveDate(now, env.VOTE_WEEKDAYS);
+  const weekKey = getKstDateKey(scheduleDate);
   const existing = await prisma.round.findUnique({ where: { weekKey } });
   if (existing) return existing;
 
-  const schedule = getWeeklySchedule(
-    now,
-    env.VOTE_OPEN_DAY,
+  const schedule = getDailySchedule(
+    scheduleDate,
     env.VOTE_OPEN_TIME,
-    env.EVENT_WEEKDAY,
     env.VOTE_CLOSE_TIME,
     env.TEAM_LOCATION_CLOSE_TIME,
   );

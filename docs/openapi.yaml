@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: 싸밥일레븐 API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    주간 점심 장소 투표와 과거 조 이력을 고려한 랜덤 조 편성 API.
+    평일마다 08:30~11:30에 진행하는 점심 장소 투표와 과거 조 이력을 고려한 랜덤 조 편성 API.
     대한민국 단일 지역에서 회차당 최대 26명을 지원한다.
     조 크기는 4~5명을 목표로 하되 인원에 따라 ADAPTIVE 정책으로 자동 조정한다.
     모든 시각은 ISO 8601 UTC 문자열로 전달한다.
@@ -705,8 +705,9 @@ components:
           format: uuid
         weekKey:
           type: string
-          pattern: "^[0-9]{4}-W[0-9]{2}$"
-          example: 2026-W29
+          pattern: "^(?:[0-9]{4}-W[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+          description: 신규 자동 회차는 한국 날짜 YYYY-MM-DD를 사용하며 기존 주간 회차 키도 호환한다.
+          example: 2026-07-20
         flowMode:
           $ref: "#/components/schemas/FlowMode"
         status:
@@ -1019,7 +1020,8 @@ components:
       properties:
         weekKey:
           type: string
-          pattern: "^[0-9]{4}-W[0-9]{2}$"
+          pattern: "^(?:[0-9]{4}-W[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2})$"
+          example: 2026-07-20
         flowMode:
           $ref: "#/components/schemas/FlowMode"
         opensAt:

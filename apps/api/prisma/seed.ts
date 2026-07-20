@@ -8,10 +8,10 @@ const names = ["김싸피", "이코딩", "박자바", "최뷰이", "정노드", 
 async function main() {
   const now = new Date();
   const round = await prisma.round.upsert({
-    where: { weekKey: "2099-W01" },
+    where: { weekKey: "2099-01-05" },
     update: {},
     create: {
-      weekKey: "2099-W01",
+      weekKey: "2099-01-05",
       flowMode: "LOCATION_FIRST",
       status: "OPEN",
       opensAt: new Date(now.getTime() - 60_000),

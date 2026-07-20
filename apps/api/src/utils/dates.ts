@@ -1,7 +1,7 @@
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const weekdays = {
+export const WEEKDAYS = {
   MON: 1,
   TUE: 2,
   WED: 3,
@@ -11,7 +11,7 @@ const weekdays = {
   SUN: 7,
 } as const;
 
-type Weekday = keyof typeof weekdays;
+export type Weekday = keyof typeof WEEKDAYS;
 
 function kstParts(date: Date) {
   const shifted = new Date(date.getTime() + KST_OFFSET_MS);
@@ -32,33 +32,30 @@ function kstLocalToUtc(year: number, month: number, date: number, time: string):
   return new Date(Date.UTC(year, month, date, hour, minute) - KST_OFFSET_MS);
 }
 
-export function getIsoWeekKey(now: Date): string {
-  const shifted = new Date(now.getTime() + KST_OFFSET_MS);
-  const day = shifted.getUTCDay() || 7;
-  shifted.setUTCDate(shifted.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(shifted.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((shifted.getTime() - yearStart.getTime()) / DAY_MS + 1) / 7);
-  return `${shifted.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+export function getKstDateKey(date: Date): string {
+  const parts = kstParts(date);
+  return `${parts.year}-${String(parts.month + 1).padStart(2, "0")}-${String(parts.date).padStart(2, "0")}`;
 }
 
-export function getWeeklySchedule(
-  now: Date,
-  openDay: Weekday,
+export function getNextActiveDate(now: Date, activeWeekdays: readonly Weekday[]): Date {
+  for (let offset = 0; offset < 7; offset += 1) {
+    const candidate = new Date(now.getTime() + offset * DAY_MS);
+    const isoDay = kstParts(candidate).isoDay;
+    if (activeWeekdays.some((weekday) => WEEKDAYS[weekday] === isoDay)) return candidate;
+  }
+  throw new Error("At least one active weekday is required");
+}
+
+export function getDailySchedule(
+  scheduleDate: Date,
   openTime: string,
-  eventDay: Weekday,
   closeTime: string,
   locationCloseTime: string,
 ) {
-  const parts = kstParts(now);
-  const mondayDate = parts.date - parts.isoDay + 1;
-  const opensAt = kstLocalToUtc(parts.year, parts.month, mondayDate + weekdays[openDay] - 1, openTime);
-  const closesAt = kstLocalToUtc(parts.year, parts.month, mondayDate + weekdays[eventDay] - 1, closeTime);
-  const locationClosesAt = kstLocalToUtc(
-    parts.year,
-    parts.month,
-    mondayDate + weekdays[eventDay] - 1,
-    locationCloseTime,
-  );
+  const parts = kstParts(scheduleDate);
+  const opensAt = kstLocalToUtc(parts.year, parts.month, parts.date, openTime);
+  const closesAt = kstLocalToUtc(parts.year, parts.month, parts.date, closeTime);
+  const locationClosesAt = kstLocalToUtc(parts.year, parts.month, parts.date, locationCloseTime);
   return { opensAt, closesAt, locationClosesAt };
 }
 

@@ -4,7 +4,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 최대 26명의 주 1회 점심 투표와 목표 4~5명 단위의 적응형 랜덤 조 편성 서비스 설계 |
+| 목적 | 최대 26명의 평일 일간 점심 투표와 목표 4~5명 단위의 적응형 랜덤 조 편성 서비스 설계 |
 | 모노레포·패키지 관리 | pnpm 11 workspace |
 | 프론트엔드 | Vue 3.5, Vue Router 4.6, Vite 7, TypeScript 5.9 |
 | 백엔드 | Node.js 22, Express 5, TypeScript 5.9 |
@@ -26,7 +26,7 @@
 
 1. 참가자는 이름을 입력해 한 회차에 한 번 참여한다.
 2. `10층`, `20층`, `밖` 중 하나를 선택하는 장소 우선 흐름을 지원한다.
-3. 매주 수요일 11시 30분에 투표를 닫고 자동으로 조를 생성한다.
+3. 월요일부터 금요일까지 매일 08시 30분에 투표를 열고 11시 30분에 닫아 자동으로 조를 생성한다.
 4. 조는 4~5명을 목표로 구성하되 인원이 맞지 않으면 누락 없이 균등하게 조 크기를 조정한다.
 5. 최근에 같은 조였던 사람의 재매칭을 가능한 한 줄인다.
 6. 환경변수로 `장소 선택 → 조 편성`과 `조 편성 → 장소 선택`을 전환한다.
@@ -34,7 +34,7 @@
 ### 2.2 MVP 범위
 
 - 이름 기반 참가 등록, 수정, 취소
-- 주간 회차 자동 생성 및 자동 마감
+- 평일 일간 회차 자동 생성 및 자동 마감
 - 장소 우선/팀 우선 운영 모드
 - 과거 편성 이력을 반영한 조 생성
 - 결과 조회
@@ -69,6 +69,7 @@
 | 팀 장소 충돌 | 최초 확정자가 소유하며 같은 사람만 마감 전 수정/취소 가능 |
 | 조 크기 | 4~5명은 목표값이며, 인원이 맞지 않으면 전체 참가자를 누락하지 않는 범위에서 균등 조정 |
 | 최대 인원 | 회차당 26명. 초과 등록은 받지 않고 관리자에게 안내 |
+| 운영 일정 | 한국 시간 기준 월~금 08:30 투표 시작, 당일 11:30 마감 및 자동 조 편성 |
 | 서비스 지역 | 대한민국만 지원하며 `Asia/Seoul`, `ko-KR`을 고정 사용 |
 | 과거 중복 | 금지 조건이 아닌 최적화 점수로 적용 |
 | 재추첨 | MVP 일반 기능으로 제공하지 않음 |
@@ -616,7 +617,7 @@ value: {
 
 Express 프로세스 내부 worker가 `SCHEDULER_POLL_INTERVAL_MS`마다 다음 작업을 수행한다.
 
-1. 이번 주 회차가 없으면 환경변수를 스냅샷해 생성한다.
+1. 오늘이 활성 평일이면 오늘 회차를, 주말이면 다음 월요일 회차를 환경변수 스냅샷과 함께 생성한다.
 2. `opensAt <= now`인 `SCHEDULED` 회차를 `OPEN`으로 변경한다.
 3. `closesAt <= now`인 `OPEN` 회차의 조 생성을 선점한다.
 4. 오래된 `GENERATING` 회차를 같은 seed로 복구한다.
@@ -642,9 +643,8 @@ APP_LOCALE=ko-KR
 MAX_PARTICIPANTS_PER_ROUND=26
 
 FLOW_MODE=LOCATION_FIRST
-EVENT_WEEKDAY=WED
-VOTE_OPEN_DAY=WED
-VOTE_OPEN_TIME=09:00
+VOTE_WEEKDAYS=MON,TUE,WED,THU,FRI
+VOTE_OPEN_TIME=08:30
 VOTE_CLOSE_TIME=11:30
 TEAM_LOCATION_CLOSE_TIME=11:40
 
@@ -669,8 +669,9 @@ VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 
 검증 규칙:
 
-- 운영 모드와 요일/시간 enum을 시작 시 Zod로 검증한다.
-- 배포 운영 일정은 매주 수요일 09:00 투표 시작, 11:30 투표 마감과 자동 조 편성으로 설정한다.
+- 운영 모드와 쉼표로 구분한 요일/시간 값을 시작 시 Zod로 검증한다.
+- 배포 운영 일정은 월요일부터 금요일까지 매일 08:30 투표 시작, 11:30 투표 마감과 자동 조 편성으로 설정한다.
+- `VOTE_OPEN_TIME < VOTE_CLOSE_TIME`이어야 한다.
 - `MAX_PARTICIPANTS_PER_ROUND=26`을 기본이자 운영 상한으로 사용한다.
 - `TARGET_GROUP_MIN_SIZE <= TARGET_GROUP_MAX_SIZE`여야 한다.
 - `SSE_HEARTBEAT_INTERVAL_MS`는 5,000~60,000ms 범위여야 한다.
@@ -678,6 +679,7 @@ VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 - `TEAM_FIRST`의 장소 선택 마감은 투표 마감보다 늦어야 한다.
 - secret이 기본값이거나 너무 짧으면 production 시작을 거부한다.
 - 환경변수 변경은 새로 생성하는 회차부터 적용한다.
+- 기존 API와 DB 호환성을 위해 회차 식별 필드명은 `weekKey`를 유지한다. 신규 자동 회차 값은 한국 날짜 `YYYY-MM-DD`이며 기존 `YYYY-Www` 데이터도 조회할 수 있다.
 - Render가 주입한 `PORT`를 사용하고 서버는 `0.0.0.0`에서 요청을 받아야 한다.
 - `DATABASE_URL`은 `/var/data`에 마운트한 Render Persistent Disk 아래를 가리켜야 한다.
 - Netlify의 `VITE_API_BASE_URL`은 빌드 시 주입되므로 값 변경 후 새 배포가 필요하다.

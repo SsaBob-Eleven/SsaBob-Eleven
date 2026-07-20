@@ -21,6 +21,6 @@ import { RouterLink, RouterView } from "vue-router";
     <main>
       <RouterView />
     </main>
-    <footer>최대 26명 · 매주 한 번 · 모든 시간은 한국 기준</footer>
+    <footer>최대 26명 · 평일 매일 · 모든 시간은 한국 기준</footer>
   </div>
 </template>

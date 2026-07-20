@@ -10,9 +10,26 @@ vi.mock("../db.js", () => ({
       updateMany: vi.fn(),
       update: vi.fn(),
       findUniqueOrThrow: vi.fn(),
+      create: vi.fn(),
     },
     team: { create: vi.fn(), deleteMany: vi.fn() },
     generationAudit: { create: vi.fn(), deleteMany: vi.fn() },
+  },
+}));
+
+vi.mock("../config/env.js", () => ({
+  env: {
+    VOTE_WEEKDAYS: ["MON", "TUE", "WED", "THU", "FRI"],
+    VOTE_OPEN_TIME: "08:30",
+    VOTE_CLOSE_TIME: "11:30",
+    TEAM_LOCATION_CLOSE_TIME: "11:40",
+    FLOW_MODE: "LOCATION_FIRST",
+    TARGET_GROUP_MIN_SIZE: 4,
+    TARGET_GROUP_MAX_SIZE: 5,
+    MAX_PARTICIPANTS_PER_ROUND: 26,
+    HISTORY_WEEKS: 8,
+    RANDOM_ATTEMPTS: 500,
+    GENERATION_STALE_MINUTES: 5,
   },
 }));
 
@@ -20,12 +37,51 @@ vi.mock("../realtime/publishers.js", () => ({ publishRoundEvent: vi.fn() }));
 
 import { prisma } from "../db.js";
 import { publishRoundEvent } from "../realtime/publishers.js";
-import { deleteRoundTeams, openRoundNow, reopenRoundVoting, runSchedulerTick } from "./round-service.js";
+import { deleteRoundTeams, ensureCurrentRound, openRoundNow, reopenRoundVoting, runSchedulerTick } from "./round-service.js";
 
 const scheduledRound = {
   id: "11111111-1111-4111-8111-111111111111",
   status: "SCHEDULED",
 } as Round;
+
+describe("ensureCurrentRound", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("평일에는 한국 날짜별 회차를 08:30~11:30 일정으로 생성한다", async () => {
+    const now = new Date("2026-07-20T00:00:00.000Z");
+    const createdRound = { ...scheduledRound, weekKey: "2026-07-20", status: "OPEN" } as Round;
+    vi.mocked(prisma.round.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.round.create).mockResolvedValue(createdRound);
+
+    await expect(ensureCurrentRound(now)).resolves.toBe(createdRound);
+    expect(prisma.round.findUnique).toHaveBeenCalledWith({ where: { weekKey: "2026-07-20" } });
+    expect(prisma.round.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        weekKey: "2026-07-20",
+        status: "OPEN",
+        opensAt: new Date("2026-07-19T23:30:00.000Z"),
+        closesAt: new Date("2026-07-20T02:30:00.000Z"),
+      }),
+    });
+  });
+
+  it("주말에는 다음 월요일 회차를 예약 상태로 생성한다", async () => {
+    const now = new Date("2026-07-25T03:00:00.000Z");
+    const createdRound = { ...scheduledRound, weekKey: "2026-07-27", status: "SCHEDULED" } as Round;
+    vi.mocked(prisma.round.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.round.create).mockResolvedValue(createdRound);
+
+    await expect(ensureCurrentRound(now)).resolves.toBe(createdRound);
+    expect(prisma.round.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        weekKey: "2026-07-27",
+        status: "SCHEDULED",
+        opensAt: new Date("2026-07-26T23:30:00.000Z"),
+        closesAt: new Date("2026-07-27T02:30:00.000Z"),
+      }),
+    });
+  });
+});
 
 describe("openRoundNow", () => {
   beforeEach(() => vi.clearAllMocks());

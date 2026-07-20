@@ -208,7 +208,7 @@ adminRouter.get("/rounds", async (request, response) => {
 adminRouter.post("/rounds", async (request, response) => {
   const body = z
     .object({
-      weekKey: z.string().regex(/^\d{4}-W\d{2}$/),
+      weekKey: z.string().regex(/^(?:\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})$/),
       flowMode: z.enum(["LOCATION_FIRST", "TEAM_FIRST"]),
       opensAt: z.coerce.date(),
       closesAt: z.coerce.date(),
