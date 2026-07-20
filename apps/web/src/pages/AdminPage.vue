@@ -94,6 +94,23 @@ async function openVotingNow() {
   }
 }
 
+async function reopenVoting() {
+  if (
+    !selected.value ||
+    !confirm("기존 조 편성과 결과를 삭제하고 투표를 30분 동안 다시 열까요? 참가자 등록은 유지됩니다.")
+  ) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await api.adminReopen(token.value, selected.value.round.id);
+    await Promise.all([refreshSelected(selected.value.round.id), loadRounds()]);
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "투표를 다시 열지 못했습니다.";
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function runDevAction(action: DevAction) {
   if (!selected.value) return;
   const destructive = action === "CLEAR_ALL" || action === "GENERATE_TEAMS";
@@ -157,6 +174,12 @@ onBeforeUnmount(() => unsubscribeRealtime?.());
         </div>
         <button v-if="selected.round.status === 'SCHEDULED'" class="primary-button small" :disabled="loading" @click="openVotingNow">지금 투표 열기</button>
         <button v-else-if="selected.round.status === 'OPEN'" class="primary-button small" :disabled="loading" @click="generate">지금 조 만들기</button>
+        <button
+          v-else-if="selected.round.status === 'LOCATION_SELECTION' || selected.round.status === 'COMPLETED'"
+          class="danger-action"
+          :disabled="loading"
+          @click="reopenVoting"
+        >조 삭제·투표 다시 열기</button>
       </div>
       <div class="participant-list">
         <span v-for="registration in selected.registrations" :key="registration.id">

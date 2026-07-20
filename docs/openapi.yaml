@@ -380,6 +380,32 @@ paths:
         "409":
           $ref: "#/components/responses/ConflictError"
 
+  /admin/rounds/{roundId}/reopen:
+    post:
+      tags: [Admin]
+      summary: 조 편성 삭제 후 투표 다시 열기
+      description: |
+        LOCATION_SELECTION 또는 COMPLETED 회차의 기존 조, 팀원, 생성 감사 기록을 삭제한다.
+        참가자 등록은 유지하고 투표를 현재 시각부터 30분 동안 다시 연다.
+      operationId: reopenAdminRound
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RoundId"
+      responses:
+        "200":
+          description: 투표를 다시 연 회차
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundResponse"
+        "401":
+          $ref: "#/components/responses/AdminUnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
   /admin/registrations/{registrationId}:
     parameters:
       - $ref: "#/components/parameters/RegistrationId"

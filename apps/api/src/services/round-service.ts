@@ -70,6 +70,38 @@ export async function openRoundNow(roundId: string, now = new Date()) {
   return updated;
 }
 
+export async function reopenRoundVoting(roundId: string, now = new Date()) {
+  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  if (!round) throw new AppError(404, "ROUND_NOT_FOUND", "회차를 찾을 수 없습니다.");
+  if (round.status !== "LOCATION_SELECTION" && round.status !== "COMPLETED") {
+    throw new AppError(409, "ROUND_NOT_OPEN", "조 편성이 완료된 회차만 투표를 다시 열 수 있습니다.");
+  }
+
+  const closesAt = addMinutes(now, 30);
+  const locationClosesAt = round.flowMode === "TEAM_FIRST" ? addMinutes(now, 40) : null;
+  const [, , updated] = await prisma.$transaction([
+    prisma.team.deleteMany({ where: { roundId } }),
+    prisma.generationAudit.deleteMany({ where: { roundId } }),
+    prisma.round.update({
+      where: { id: roundId },
+      data: {
+        status: "OPEN",
+        opensAt: now,
+        closesAt,
+        locationClosesAt,
+        randomSeed: null,
+        generationStartedAt: null,
+        generatedAt: null,
+        completedAt: null,
+      },
+    }),
+  ]);
+
+  publishRoundEvent(roundId, "round.updated", { status: updated.status });
+  publishRoundEvent(roundId, "results.updated", { available: false });
+  return updated;
+}
+
 async function buildPairPenalties(roundId: string, historyWeeks: number): Promise<PairPenaltyMap> {
   if (historyWeeks === 0) return new Map();
   const current = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });
