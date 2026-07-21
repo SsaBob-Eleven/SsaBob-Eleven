@@ -150,7 +150,7 @@ async function submit() {
         participantName: response.data.registration.participant.name,
       });
       await refreshCurrent();
-      notice.value = "이번 주 점심 투표에 참여했습니다.";
+      notice.value = "오늘 점심 투표에 참여했습니다.";
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "투표를 저장하지 못했습니다.";
@@ -160,7 +160,7 @@ async function submit() {
 }
 
 async function cancelRegistration() {
-  if (!current.value || !registration.value || !confirm("이번 주 참가를 취소할까요?")) return;
+  if (!current.value || !registration.value || !confirm("오늘 참가를 취소할까요?")) return;
   const stored = loadStoredRegistration(current.value.round.id);
   if (!stored) return;
   submitting.value = true;
@@ -192,9 +192,9 @@ onBeforeUnmount(() => {
 <template>
   <section class="hero">
     <div>
-      <p class="eyebrow">THIS WEEK'S LUNCH</p>
+      <p class="eyebrow">TODAY'S LUNCH</p>
       <h1>점심 고민은 짧게,<br /><em>좋은 대화는 길게.</em></h1>
-      <p class="hero-copy">이름과 장소만 남겨 주세요. 마감되면 최근 조합을 피해 새로운 점심 조를 만들어 드려요.</p>
+      <p class="hero-copy">이름과 장소만 남겨 주세요. 마감되면 최근 조합을 피해 오늘 하루 함께할 점심 조를 만들어 드려요.</p>
     </div>
     <div class="status-card" aria-live="polite">
       <span class="status-dot"></span>
@@ -209,7 +209,7 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
-  <section v-if="loading" class="panel empty-state">이번 주 식탁을 준비하고 있어요…</section>
+  <section v-if="loading" class="panel empty-state">오늘의 식탁을 준비하고 있어요…</section>
   <section v-else-if="error && !current" class="panel empty-state error-text">{{ error }}</section>
 
   <template v-else-if="current">
@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
       <div class="panel-heading">
         <div>
           <p class="step">01</p>
-          <h2>{{ registration ? '내 투표 수정' : '이번 주 참가하기' }}</h2>
+          <h2>{{ registration ? '내 투표 수정' : '오늘 참가하기' }}</h2>
         </div>
         <p>{{ registration ? '마감 전까지 자유롭게 바꿀 수 있어요.' : '동명이인은 서로 다른 3글자 별칭을 사용해 주세요.' }}</p>
       </div>
@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
             </label>
           </div>
         </fieldset>
-        <p v-else class="mode-notice">이번 주는 팀을 먼저 만든 뒤, 조원들과 장소를 정합니다.</p>
+        <p v-else class="mode-notice">오늘은 팀을 먼저 만든 뒤, 조원들과 장소를 정합니다.</p>
 
         <p v-if="error" class="form-message error-text">{{ error }}</p>
         <p v-if="notice" class="form-message success-text">{{ notice }}</p>
@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
 
     <section v-else class="panel empty-state result-cta">
       <p class="step">02</p>
-      <h2>{{ current.round.status === 'GENERATING' ? '새로운 조를 만들고 있어요' : current.round.status === 'PAUSED' ? '기존 조 편성이 삭제됐어요' : '이번 주 조가 준비됐어요' }}</h2>
+      <h2>{{ current.round.status === 'GENERATING' ? '새로운 조를 만들고 있어요' : current.round.status === 'PAUSED' ? '기존 조 편성이 삭제됐어요' : '오늘의 점심 조가 준비됐어요' }}</h2>
       <p>{{ current.round.status === 'GENERATING' ? '최근에 만난 사람을 고려해 가장 좋은 조합을 찾는 중입니다.' : current.round.status === 'PAUSED' ? '관리자가 투표를 다시 열기 전까지 잠시 기다려 주세요.' : '내가 누구와 어디서 먹게 됐는지 확인해 보세요.' }}</p>
       <RouterLink v-if="current.rules.resultAvailable" class="primary-button inline-button" to="/results">조 편성 결과 보기</RouterLink>
     </section>

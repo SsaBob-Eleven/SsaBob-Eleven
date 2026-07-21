@@ -92,8 +92,8 @@ onBeforeUnmount(() => unsubscribeRealtime?.());
 <template>
   <section class="page-heading">
     <p class="eyebrow">TEAM BOARD</p>
-    <h1>이번 주 <em>점심 조</em></h1>
-    <p>4~5명을 기본으로 하되, 참가 인원에 맞춰 누구도 빠지지 않도록 조를 구성했어요.</p>
+    <h1>오늘의 <em>점심 조</em></h1>
+    <p>오늘 하루 함께할 조예요. 4~5명을 기본으로 하되, 참가 인원에 맞춰 누구도 빠지지 않도록 구성했어요.</p>
     <span class="realtime-chip" :class="{ connected: realtimeConnected }">
       {{ realtimeConnected ? '실시간 결과 연결됨' : '실시간 결과 재연결 중' }}
     </span>
