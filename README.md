@@ -5,7 +5,7 @@
 ## 구성
 
 - `apps/web`: Vue 3 + Vite 사용자/관리자 SPA
-- `apps/api`: Express + Prisma + SQLite API와 scheduler worker
+- `apps/api`: Express + Prisma + Neon PostgreSQL 18 API와 scheduler worker
 - `packages/shared`: 프론트엔드와 백엔드 공통 타입
 - `docs`: 시스템 설계, OpenAPI, ADR
 
@@ -20,6 +20,7 @@ macOS/Linux:
 ```bash
 cp .env.example apps/api/.env
 pnpm install
+docker compose up -d db
 pnpm db:generate
 pnpm db:migrate
 pnpm dev
@@ -31,10 +32,13 @@ Windows PowerShell:
 npm.cmd install --global pnpm@11
 Copy-Item .env.example apps/api/.env
 pnpm.cmd install
+docker compose up -d db
 pnpm.cmd db:generate
 pnpm.cmd db:migrate
 pnpm.cmd dev
 ```
+
+`docker compose up -d db`는 로컬 PostgreSQL을 실행하는 명령입니다. Docker를 사용하지 않는 환경에서는 설치된 PostgreSQL이나 Neon의 별도 개발 branch 연결 정보를 `apps/api/.env`의 `DATABASE_URL`, `DIRECT_URL`에 넣고 이 명령만 생략합니다.
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:3000/api/v1`
@@ -73,7 +77,7 @@ SSE_HEARTBEAT_INTERVAL_MS=20000
 
 - 프론트엔드: Netlify의 Vue/Vite 정적 SPA
 - 백엔드: Render의 단일 Docker Web Service
-- 데이터베이스: Render Persistent Disk의 `/var/data/lunch.db`
+- 데이터베이스: Neon PostgreSQL 18 Free
 - 실시간 갱신: 단일 Render 프로세스의 인프로세스 pub/sub와 SSE
 
 Netlify:
@@ -91,12 +95,22 @@ Render:
 - Docker Build Context: 저장소 루트
 - Dockerfile Path: `apps/api/Dockerfile`
 - Health Check Path: `/api/v1/health/ready`
-- Persistent Disk Mount Path: `/var/data`
-- 주요 환경변수: `DATABASE_URL=file:/var/data/lunch.db`, `WEB_ORIGIN=https://<netlify-site>.netlify.app`
+- 주요 환경변수: `DATABASE_URL=<Neon pooled URL>`, `DIRECT_URL=<Neon direct URL>`, `WEB_ORIGIN=https://<netlify-site>.netlify.app`
 - Instance Count: 1, autoscaling 비활성화
 
-Render의 기본 파일시스템은 임시 저장소입니다. 운영 SQLite에는 유료 Persistent Disk가 반드시 필요하며, 무료 Web Service의 로컬 파일에 데이터를 저장하면 안 됩니다. 운영 secret은 `.env` 파일로 커밋하지 않고 각 배포 플랫폼의 환경변수 설정에 등록합니다.
+Render 무료 Web Service의 파일시스템에는 운영 데이터를 저장하지 않습니다. 참가 등록과 편성 데이터는 Neon PostgreSQL에 보관하므로 Render 재배포·재시작·절전 후에도 유지됩니다. `DATABASE_URL`에는 Neon의 `-pooler` 호스트가 포함된 pooled URL을, `DIRECT_URL`에는 migration용 direct URL을 등록합니다. 운영 secret과 DB URL은 `.env` 파일로 커밋하지 않고 각 배포 플랫폼의 환경변수 설정에 등록합니다.
 
-현재 저장소에는 과거 Vercel/EC2용 `apps/web/vercel.json`, `Caddyfile`, `docker-compose.yml`이 남아 있지만 Netlify·Render 운영 배포에는 사용하지 않습니다. 실제 배포 전에는 Netlify SPA rewrite, Express `trust proxy`와 Render bind 확인을 코드/플랫폼 설정에 반영해야 합니다.
+현재 저장소에는 과거 Vercel/EC2용 `apps/web/vercel.json`과 `Caddyfile`이 남아 있지만 Netlify·Render 운영 배포에는 사용하지 않습니다. `docker-compose.yml`의 PostgreSQL은 로컬 개발용입니다. 실제 배포 전에는 Netlify SPA rewrite, Express `trust proxy`와 Render bind 확인을 코드/플랫폼 설정에 반영해야 합니다.
 
-상세 설계는 [시스템 설계서](docs/system-design.md), [ADR-0001](docs/adr/0001-small-single-region-adaptive-groups.md), [ADR-0002](docs/adr/0002-netlify-render-single-instance.md)를 참고하세요.
+기존 SQLite 파일이 남아 있고 Neon이 비어 있다면 PostgreSQL migration을 먼저 적용한 뒤 한 번만 가져올 수 있습니다.
+
+```powershell
+$env:SQLITE_SOURCE_PATH="C:\path\to\lunch.db"
+$env:DATABASE_URL="<Neon pooled URL>"
+$env:DIRECT_URL="<Neon direct URL>"
+pnpm.cmd db:import-sqlite
+```
+
+연결 전에 원본 SQLite 파일을 읽을 수 있는지만 확인하려면 명령 끝에 `-- --dry-run`을 붙입니다. 대상 PostgreSQL에 데이터가 하나라도 있으면 실제 import는 중복 방지를 위해 중단됩니다. 이미 Render 임시 파일시스템에서 삭제된 SQLite 데이터는 복구할 수 없습니다.
+
+상세 설계는 [시스템 설계서](docs/system-design.md), [ADR-0001](docs/adr/0001-small-single-region-adaptive-groups.md), [ADR-0002](docs/adr/0002-netlify-render-single-instance.md), [ADR-0003](docs/adr/0003-neon-postgresql-persistence.md)을 참고하세요.

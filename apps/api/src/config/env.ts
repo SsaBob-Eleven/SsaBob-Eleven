@@ -4,12 +4,14 @@ import type { Weekday } from "../utils/dates.js";
 
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const weekdaysPattern = /^(MON|TUE|WED|THU|FRI|SAT|SUN)(,(MON|TUE|WED|THU|FRI|SAT|SUN))*$/;
+const postgresUrlPattern = /^postgres(?:ql)?:\/\//;
 
 const schema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(3000),
-    DATABASE_URL: z.string().default("file:./dev.db"),
+    DATABASE_URL: z.string().regex(postgresUrlPattern).default("postgresql://postgres:postgres@localhost:5432/ssabap"),
+    DIRECT_URL: z.string().regex(postgresUrlPattern).default("postgresql://postgres:postgres@localhost:5432/ssabap"),
     APP_TIMEZONE: z.literal("Asia/Seoul").default("Asia/Seoul"),
     APP_LOCALE: z.literal("ko-KR").default("ko-KR"),
     MAX_PARTICIPANTS_PER_ROUND: z.coerce.number().int().min(1).max(26).default(26),
