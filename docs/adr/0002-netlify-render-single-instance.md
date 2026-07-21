@@ -1,9 +1,11 @@
 # ADR-0002: Netlify·Render 단일 인스턴스 배포
 
-- 상태: 승인됨(Accepted)
+- 상태: 부분 대체됨(Partially Superseded)
 - 결정일: 2026-07-20
 - 적용 대상: 프론트엔드 배포, 백엔드 배포, SQLite 영속화, CORS, 실시간 이벤트
 - 대체 대상: ADR-0001의 AWS 서울 리전, Vercel, EC2, EBS 관련 결정
+
+> Netlify 프론트엔드, Render 단일 API 인스턴스, CORS와 SSE 결정은 계속 유효하다. SQLite와 Render Persistent Disk 결정은 [ADR-0003](0003-neon-postgresql-persistence.md)이 대체한다.
 
 ## 배경
 

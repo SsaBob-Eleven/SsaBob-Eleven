@@ -10,7 +10,8 @@
     "typecheck": "pnpm --filter @ssabap/shared build && pnpm --filter @ssabap/api typecheck && pnpm --filter @ssabap/web typecheck",
     "db:generate": "pnpm --filter @ssabap/api prisma:generate",
     "db:migrate": "pnpm --filter @ssabap/api prisma:migrate",
-    "db:seed": "pnpm --filter @ssabap/api prisma:seed"
+    "db:seed": "pnpm --filter @ssabap/api prisma:seed",
+    "db:import-sqlite": "pnpm --filter @ssabap/api prisma:import-sqlite"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

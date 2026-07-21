@@ -9,16 +9,16 @@
 | 프론트엔드 | Vue 3.5, Vue Router 4.6, Vite 7, TypeScript 5.9 |
 | 백엔드 | Node.js 22, Express 5, TypeScript 5.9 |
 | API 검증·보안 | Zod 4, Helmet 8, CORS 2, express-rate-limit 8 |
-| 데이터베이스 | Prisma ORM 6.19, SQLite |
+| 데이터베이스 | Prisma ORM 6.19, Neon PostgreSQL 18 |
 | 실시간 통신 | Server-Sent Events(SSE), Node.js EventEmitter 기반 인프로세스 pub/sub |
 | 스케줄러 | Express 프로세스 내부 scheduler worker |
 | 테스트·정적 검증 | Vitest 4, vue-tsc 3, TypeScript compiler |
 | 컨테이너 | Docker, Node.js 22 Alpine image |
-| 배포·영속화 | Netlify(Vue SPA), Render 단일 Docker Web Service, Render Persistent Disk |
+| 배포·영속화 | Netlify(Vue SPA), Render 무료 단일 Docker Web Service, Neon PostgreSQL 18 Free |
 | 기준 시간대 | Asia/Seoul |
 | 서비스 범위 | 대한민국 단일 지역, 한국어 UI, 회차당 최대 26명 |
 | API 규격 | `docs/openapi.yaml` |
-| 고정 설계 결정 | 용량·편성: `docs/adr/0001-small-single-region-adaptive-groups.md`, 배포: `docs/adr/0002-netlify-render-single-instance.md` |
+| 고정 설계 결정 | 용량·편성: `docs/adr/0001-small-single-region-adaptive-groups.md`, 배포: `docs/adr/0002-netlify-render-single-instance.md`, 영속 DB: `docs/adr/0003-neon-postgresql-persistence.md` |
 
 ## 2. 목표와 범위
 
@@ -39,7 +39,7 @@
 - 과거 편성 이력을 반영한 조 생성
 - 결과 조회
 - 최소 관리자 기능
-- Render 단일 Web Service 운영과 Persistent Disk의 SQLite 백업·복구 검증
+- Render 단일 Web Service 운영과 Neon PostgreSQL 영속성·복구 검증
 - 회차당 최대 26명과 대한민국 단일 지역 운영
 
 ### 2.3 MVP 제외 범위
@@ -87,7 +87,7 @@ sequenceDiagram
     actor U as 참가자
     participant W as Vue Web
     participant A as Express API
-    participant D as SQLite
+    participant D as Neon PostgreSQL
     participant S as Scheduler
 
     U->>W: 이름과 장소 선택
@@ -116,7 +116,7 @@ sequenceDiagram
     actor U as 참가자
     participant W as Vue Web
     participant A as Express API
-    participant D as SQLite
+    participant D as Neon PostgreSQL
     participant S as Scheduler
 
     U->>W: 이름으로 참가 등록
@@ -149,9 +149,9 @@ flowchart LR
     R -->|SSE 지속 연결| U
     R --> E["Express API + Worker\n단일 Node 프로세스"]
     E --> P["Prisma"]
-    P --> D[("SQLite\nRender Persistent Disk /var/data")]
+    P --> D[("Neon PostgreSQL\n외부 영속 데이터베이스")]
     E --> L["JSON 로그"]
-    S["Render disk snapshot\n+ SQLite 복구 절차"] --> D
+    S["Neon 복구 기능\n+ 데이터 export 절차"] --> D
 ```
 
 ### 5.1 컴포넌트 책임
@@ -162,9 +162,9 @@ flowchart LR
 | Express API | 검증, 권한 확인, 비즈니스 로직, REST API, 인프로세스 pub/sub와 SSE 전파 |
 | Worker | 회차 생성, 투표 마감, 조 생성, 팀 장소 선택 마감 |
 | Prisma | 데이터 접근과 마이그레이션 |
-| SQLite | Render Persistent Disk의 `/var/data/lunch.db`에 참가자, 회차, 등록, 팀, 감사 데이터 영속화 |
+| Neon PostgreSQL | Render 인스턴스 수명과 분리해 참가자, 회차, 등록, 팀, 감사 데이터 영속화 |
 | Netlify | Vue 정적 파일 빌드·배포, CDN, TLS, SPA routing rewrite |
-| Render | Docker Web Service 실행, TLS 종료, health check, Persistent Disk 연결 |
+| Render | 무료 Docker Web Service 실행, TLS 종료, health check, 단일 API/worker 프로세스 운영 |
 
 ### 5.2 코드 구조
 
@@ -623,14 +623,14 @@ Express 프로세스 내부 worker가 `SCHEDULER_POLL_INTERVAL_MS`마다 다음 
 4. 오래된 `GENERATING` 회차를 같은 seed로 복구한다.
 5. `locationClosesAt <= now`인 `LOCATION_SELECTION` 회차를 완료한다.
 
-프로세스가 정확히 11시 30분에 중단되어도 재기동 후 overdue 회차를 찾아 처리한다. SQLite를 쓰는 동안 Node cluster 모드나 복수 API 컨테이너를 사용하지 않는다.
+프로세스가 정확히 11시 30분에 중단되어도 재기동 후 overdue 회차를 찾아 처리한다. 인프로세스 SSE pub/sub와 scheduler의 단일 실행을 위해 Node cluster 모드나 복수 API 컨테이너를 사용하지 않는다.
 
 ### 11.2 용량 및 지역 경계
 
 - 회차당 최대 26명만 지원한다.
 - 대한민국 사용자만 대상으로 하며 시간대는 `Asia/Seoul`, 화면 언어는 `ko-KR`로 고정한다.
 - 호스팅은 Render에서 선택 가능한 단일 리전을 사용하며 특정 AWS 서울 리전은 요구하지 않는다.
-- 다중 리전, 자동 확장, 메시지 큐, 분산 worker, PostgreSQL 전환은 현재 범위가 아니다.
+- 다중 리전, 자동 확장, 메시지 큐와 분산 worker는 현재 범위가 아니다.
 - 26명 초과나 고가용성 요구가 새로 생길 때에만 별도 ADR을 작성해 구조 변경을 검토한다.
 
 ## 12. 환경변수
@@ -657,7 +657,8 @@ GENERATION_STALE_MINUTES=5
 SCHEDULER_POLL_INTERVAL_MS=30000
 SSE_HEARTBEAT_INTERVAL_MS=20000
 
-DATABASE_URL=file:/var/data/lunch.db
+DATABASE_URL=postgresql://<user>:<password>@<neon-pooler-host>/<database>?sslmode=require
+DIRECT_URL=postgresql://<user>:<password>@<neon-direct-host>/<database>?sslmode=require
 WEB_ORIGIN=https://<netlify-site>.netlify.app
 ADMIN_TOKEN=replace-with-long-random-token
 EDIT_TOKEN_PEPPER=replace-with-long-random-secret
@@ -681,7 +682,7 @@ VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 - 환경변수 변경은 새로 생성하는 회차부터 적용한다.
 - 기존 API와 DB 호환성을 위해 회차 식별 필드명은 `weekKey`를 유지한다. 신규 자동 회차 값은 한국 날짜 `YYYY-MM-DD`이며 기존 `YYYY-Www` 데이터도 조회할 수 있다.
 - Render가 주입한 `PORT`를 사용하고 서버는 `0.0.0.0`에서 요청을 받아야 한다.
-- `DATABASE_URL`은 `/var/data`에 마운트한 Render Persistent Disk 아래를 가리켜야 한다.
+- `DATABASE_URL`은 Neon pooled connection, `DIRECT_URL`은 Prisma migration용 direct connection이어야 한다.
 - Netlify의 `VITE_API_BASE_URL`은 빌드 시 주입되므로 값 변경 후 새 배포가 필요하다.
 
 ## 13. 보안 설계
@@ -729,36 +730,38 @@ VITE_API_BASE_URL=https://<render-service>.onrender.com/api/v1
 | Dockerfile Path | `apps/api/Dockerfile` |
 | Health Check Path | `/api/v1/health/ready` |
 | Instance Count | 1 |
-| Persistent Disk Mount Path | `/var/data` |
-| Database URL | `file:/var/data/lunch.db` |
+| Instance Type | Free |
+| Runtime Database URL | Neon pooled connection (`DATABASE_URL`) |
+| Migration Database URL | Neon direct connection (`DIRECT_URL`) |
 
 - Render가 주입하는 `PORT`를 사용하고 `0.0.0.0`에 바인딩한다.
 - Render가 TLS와 public HTTPS endpoint를 관리하므로 Caddy/Nginx와 `docker-compose.yml`은 운영 경로에 포함하지 않는다.
 - `packages/shared`가 Docker build에 필요하므로 Build Context를 `apps/api`로 좁히지 않는다.
-- Render pre-deploy command는 Persistent Disk에 접근할 수 없다. 기존 Docker 시작 명령에서 `prisma migrate deploy`를 실행한 뒤 API를 시작한다.
+- Docker 시작 명령에서 Neon direct connection으로 `prisma migrate deploy`를 실행한 뒤 API를 시작한다.
 - `WEB_ORIGIN=https://<netlify-site>.netlify.app`를 설정하고 `ADMIN_TOKEN`, `EDIT_TOKEN_PEPPER`는 서로 다른 긴 임의 secret으로 등록한다.
-- SQLite와 인프로세스 pub/sub를 사용하므로 autoscaling과 복수 인스턴스를 활성화하지 않는다.
-- Render 기본 파일시스템은 임시 저장소이므로 운영 데이터는 반드시 `/var/data` 아래에 저장한다. Persistent Disk를 제공하지 않는 무료 Web Service는 운영 SQLite 용도로 사용할 수 없다.
+- 인프로세스 pub/sub와 scheduler의 중복 실행을 막기 위해 autoscaling과 복수 인스턴스를 활성화하지 않는다.
+- Render 로컬 파일시스템에는 운영 데이터를 저장하지 않는다. 모든 영속 데이터는 Neon PostgreSQL에 저장한다.
 
 ### 14.3 데이터 보호와 복구
 
-- Render Persistent Disk의 암호화와 일일 snapshot을 기본 보호 수단으로 사용한다.
-- snapshot만 믿지 않고 조 생성 직후 또는 최소 일 1회 SQLite 일관성 백업을 별도 저장소로 내보내는 절차를 마련한다.
-- 복구 시점에 DB 파일과 애플리케이션 스키마 버전이 맞는지 확인한다.
-- 배포 전 테스트 환경에서 Persistent Disk 재연결, 재배포 후 데이터 유지, snapshot 또는 SQLite 백업 복구를 검증한다.
-- 백업 보관 기간과 삭제 정책은 실제 Render 요금제 및 조직 정책을 확인한 뒤 운영 체크리스트에 확정한다.
+- Neon의 복구 기능과 PostgreSQL export를 데이터 보호 수단으로 사용한다.
+- 복구 시점에 export와 애플리케이션의 Prisma migration 버전이 맞는지 확인한다.
+- Render 재배포·재시작·절전 후에도 참가 등록이 유지되는지 테스트 환경에서 검증한다.
+- 백업 보관 기간과 삭제 정책은 Neon 무료 플랜의 현재 정책과 조직 정책을 확인한 뒤 운영 체크리스트에 확정한다.
+- 기존 SQLite 파일을 가져올 때는 Neon 대상이 비어 있어야 하며, import 전에 원본 파일을 별도로 보존한다.
 
 ### 14.4 현재 저장소 반영 상태
 
 | 항목 | 상태 | 배포 전 조치 |
 |---|---|---|
 | Render Docker build | 기존 `apps/api/Dockerfile` 사용 가능 | Render의 Build Context를 저장소 루트로 지정하고 실제 image build 검증 |
-| Prisma migration | Docker 시작 명령에 `prisma migrate deploy` 포함 | Persistent Disk가 연결된 test service에서 최초 기동과 재기동 검증 |
+| Prisma migration | PostgreSQL baseline과 Docker 시작 명령의 `prisma migrate deploy` 반영 | Neon test branch에서 최초 기동과 재기동 검증 |
 | CORS allowlist | 쉼표로 구분한 `WEB_ORIGIN` 지원 | 실제 Netlify production/필요한 preview origin 입력 |
 | Netlify SPA rewrite | 저장소 설정 없음 | `netlify.toml` 또는 Netlify UI에 `/* -> /index.html 200` 반영 |
 | Render proxy 대응 | `trust proxy` 미설정 | 프록시 뒤 실제 IP와 rate limit 동작을 확인해 코드에 설정 |
 | Render listen address | `PORT` 사용, host 명시 없음 | Render에서 접근을 검증하고 필요하면 `0.0.0.0` 명시 |
-| 과거 배포 파일 | `apps/web/vercel.json`, `Caddyfile`, `docker-compose.yml` 존재 | Netlify·Render 운영 경로에서는 사용하지 않으며 후속 배포 구현에서 정리 |
+| 로컬 PostgreSQL | `docker-compose.yml`의 PostgreSQL 18 사용 | 운영에서는 Neon URL을 주입하고 compose DB는 사용하지 않음 |
+| 과거 배포 파일 | `apps/web/vercel.json`, `Caddyfile` 존재 | Netlify·Render 운영 경로에서는 사용하지 않으며 후속 배포 구현에서 정리 |
 
 이 절은 설계 완료와 배포 준비 완료를 구분하기 위한 상태표다. 플랫폼 전환 문서는 확정됐지만 위 조치를 마치기 전까지 Netlify·Render 운영 배포 준비가 완료된 것으로 간주하지 않는다.
 
@@ -859,12 +862,12 @@ JSON 로그 공통 필드:
 - 편성 완료 후 관리자가 기존 조를 삭제하면 참가자 등록은 유지되고 회차는 `PAUSED`가 된다.
 - 관리자가 별도로 투표 다시 열기를 실행하면 `PAUSED` 회차가 30분간 `OPEN`으로 전환된다.
 - 샘플 인원 추가, 강제 완료, 전체 초기화 등 개발 전용 API는 운영 환경에 노출되지 않는다.
-- DB 백업과 복구 절차가 검증된다.
+- Render 재배포·재시작 후 Neon의 참가 데이터가 유지되고 복구 절차가 검증된다.
 
 ## 18. 구현 순서
 
 1. pnpm 모노레포와 Express/Vue 골격 구성
-2. Prisma 스키마와 SQLite 마이그레이션
+2. Prisma 스키마와 PostgreSQL baseline migration
 3. 공통 타입, 환경설정 검증, 오류 형식 구현
 4. 회차 및 등록 공개 API
 5. 조 크기 계산과 역사 기반 편성 알고리즘
@@ -873,7 +876,7 @@ JSON 로그 공통 필드:
 8. 사용자 Vue 화면
 9. 관리자 API와 최소 관리자 화면
 10. 단위/통합/E2E 테스트
-11. Netlify SPA rewrite와 Render Docker/Persistent Disk 배포 설정
+11. Netlify SPA rewrite와 Render Docker/Neon 배포 설정
 12. 운영 리허설과 백업 복구 테스트
 
 ## 19. 향후 기능 확장 순서
@@ -885,4 +888,4 @@ JSON 로그 공통 필드:
 5. 관리자용 알고리즘 점수/중복 관계 시각화
 6. 결석, 고정 조, 반드시 분리할 사람 등 추가 제약
 
-확장 기능 역시 최대 26명·대한민국 사용자 대상·단일 Render 인스턴스/SQLite라는 현재 경계 안에서 구현한다. 이 경계를 바꾸는 요구는 기능 백로그가 아니라 별도 아키텍처 결정 대상이다.
+확장 기능 역시 최대 26명·대한민국 사용자 대상·단일 Render 인스턴스/Neon PostgreSQL이라는 현재 경계 안에서 구현한다. 이 경계를 바꾸는 요구는 기능 백로그가 아니라 별도 아키텍처 결정 대상이다.

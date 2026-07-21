@@ -1,9 +1,11 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum FlowMode {
@@ -43,45 +45,45 @@ model Participant {
 }
 
 model Round {
-  id                     String           @id @default(uuid())
-  weekKey                String           @unique
-  flowMode               FlowMode
-  status                 RoundStatus
-  opensAt                DateTime
-  closesAt               DateTime
-  locationClosesAt       DateTime?
-  groupSizePolicy        String           @default("ADAPTIVE")
-  targetGroupMinSize     Int              @default(4)
-  targetGroupMaxSize     Int              @default(5)
-  maxParticipants        Int              @default(26)
-  historyWeeks           Int              @default(8)
-  randomAttempts         Int              @default(500)
-  randomSeed             String?
-  generationStartedAt    DateTime?
-  generatedAt            DateTime?
-  completedAt            DateTime?
-  registrations          Registration[]
-  teams                  Team[]
-  generationAudit        GenerationAudit?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  weekKey             String           @unique
+  flowMode            FlowMode
+  status              RoundStatus
+  opensAt             DateTime
+  closesAt            DateTime
+  locationClosesAt    DateTime?
+  groupSizePolicy     String           @default("ADAPTIVE")
+  targetGroupMinSize  Int              @default(4)
+  targetGroupMaxSize  Int              @default(5)
+  maxParticipants     Int              @default(26)
+  historyWeeks        Int              @default(8)
+  randomAttempts      Int              @default(500)
+  randomSeed          String?
+  generationStartedAt DateTime?
+  generatedAt         DateTime?
+  completedAt         DateTime?
+  registrations       Registration[]
+  teams               Team[]
+  generationAudit     GenerationAudit?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@index([status, closesAt])
 }
 
 model Registration {
-  id                String       @id @default(uuid())
+  id                String      @id @default(uuid())
   roundId           String
   participantId     String
   displayName       String
   preferredLocation Location?
-  editTokenHash     String       @unique
-  round             Round        @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  participant       Participant  @relation(fields: [participantId], references: [id])
+  editTokenHash     String      @unique
+  round             Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  participant       Participant @relation(fields: [participantId], references: [id])
   teamMember        TeamMember?
-  selectedLocations Team[]       @relation("LocationSelector")
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  selectedLocations Team[]      @relation("LocationSelector")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@unique([roundId, participantId])
   @@index([roundId])
@@ -98,8 +100,8 @@ model Team {
   round                            Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   locationSelectedBy               Registration? @relation("LocationSelector", fields: [locationSelectedByRegistrationId], references: [id], onDelete: SetNull)
   members                          TeamMember[]
-  createdAt                        DateTime       @default(now())
-  updatedAt                        DateTime       @updatedAt
+  createdAt                        DateTime      @default(now())
+  updatedAt                        DateTime      @updatedAt
 
   @@unique([roundId, sequence])
   @@index([roundId])
@@ -107,10 +109,10 @@ model Team {
 
 model TeamMember {
   teamId         String
-  registrationId String @unique
-  team           Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  registrationId String       @unique
+  team           Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
   registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime @default(now())
+  createdAt      DateTime     @default(now())
 
   @@id([teamId, registrationId])
 }
@@ -127,5 +129,5 @@ model GenerationAudit {
   sizeAdjustedTeamCount Int
   durationMs            Int
   round                 Round             @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  createdAt             DateTime           @default(now())
+  createdAt             DateTime          @default(now())
 }
